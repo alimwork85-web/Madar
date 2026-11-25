@@ -944,10 +944,10 @@ fn keep_unreadable_file() -> Result<(), String> {
 
 /// The menu runs its own message loop, so the app must not be borrowed here.
 fn tray_menu(hwnd: HWND, at: POINT) {
-    let Some(paused) = with_app(|a| a.paused) else {
+    let Some((paused, theme)) = with_app(|a| (a.paused, a.config.theme.clone())) else {
         return;
     };
-    match tray::menu(hwnd, paused, at) {
+    match tray::menu(hwnd, paused, &theme, at) {
         Some(tray::Command::OpenWheel) => {
             with_app(|a| a.open(false));
         }
@@ -960,6 +960,14 @@ fn tray_menu(hwnd: HWND, at: POINT) {
 
 ",
                 ));
+            }
+        }
+        Some(tray::Command::Theme(i)) => {
+            let mut c = current_config();
+            c.theme = config::THEMES[i].into();
+            match apply_config(c) {
+                Ok(()) => settings::show_theme(i),
+                Err(p) => warn(&p.text),
             }
         }
         Some(tray::Command::Exit) => {

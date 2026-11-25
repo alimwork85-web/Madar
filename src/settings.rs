@@ -1105,6 +1105,13 @@ fn apply(field: Field, sel: Option<usize>, change: impl FnOnce(&mut Config)) {
     refresh(sel);
 }
 
+/// Follows a theme chosen elsewhere; leaves every other control alone.
+pub fn show_theme(index: usize) {
+    if let Some(theme) = with_state(|s| s.w.theme) {
+        send(theme, CB_SETCURSEL, index, 0);
+    }
+}
+
 fn show_list(list: List) {
     if with_state(|s| s.list) == Some(list) {
         return;

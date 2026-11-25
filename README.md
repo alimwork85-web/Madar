@@ -7,7 +7,7 @@ Developer: Ali Alhumedi.
 
 - Press Ctrl+Space. This is the default; Settings can change it.
 - Press the mouse button chosen in Settings: Back (the default), Forward or Ctrl + Middle. None turns it off.
-- Click the tray icon. A right click shows its menu: Open wheel, Settings, Pause, Exit.
+- Click the tray icon. A right click shows its menu: Open wheel, Settings, Pause, Theme, Exit.
 - Start madar.exe again. A copy that is already running shows its wheel and the new one exits.
 
 ## Using it
@@ -94,7 +94,7 @@ The interface layout comes from com-policy-config by sidit77, under the MIT lice
 
 The Settings window changes the shortcut, the mouse button, the theme, starting with Windows, Show names and the lists.
 
-- A theme is picked by name from 8 themes. Midnight is the default.
+- A theme is picked by name from 8 themes, here or under Theme in the tray menu. Midnight is the default.
 - Show names off draws each slot as its icon alone, without label or digit. The digits still work.
 - One list shows at a time: My Apps, Apps, Tools or Sites.
 - Add asks for a name, a program path and optional arguments, or for a site a name, an http or https

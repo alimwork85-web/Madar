@@ -73,4 +73,4 @@ Order: Shortcut, Mouse button, Theme, Start with Windows, Show names, then a swi
 Changes save at once. An error appears under its control. Every control is reachable with Tab and has an access key.
 
 ## Tray menu
-Open wheel, Settings, Pause (Resume when paused), separator, Exit.
+Open wheel, Settings, Pause (Resume when paused), Theme, separator, Exit. Theme opens the 8 themes with a dot at the current one; a choice saves at once and the wheel shows it when it next opens. The Theme box in an open Settings window follows.

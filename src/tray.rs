@@ -3,6 +3,7 @@
 //! Nothing here is global: a `Tray` owns the icon it registered and removes it
 //! when dropped, so Explorer restarts are handled by calling `add` again.
 
+use crate::config::THEMES;
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, POINT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{LIM_SMALL, LoadIconMetric};
@@ -12,7 +13,7 @@ use windows::Win32::UI::Shell::{
     Shell_NotifyIconW,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
-use windows::core::{PCWSTR, w};
+use windows::core::{HSTRING, PCWSTR, w};
 
 /// Explorer's callback message for the icon.
 pub const WM_TRAY: u32 = WM_APP + 20;
@@ -27,6 +28,8 @@ const OPEN: u32 = 1;
 const SETTINGS: u32 = 2;
 const PAUSE: u32 = 3;
 const EXIT: u32 = 4;
+/// The first of one id per theme, in the order of `THEMES`.
+const THEME: u32 = 10;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Event {
@@ -40,6 +43,8 @@ pub enum Command {
     OpenWheel,
     Settings,
     TogglePause,
+    /// Index in `THEMES`.
+    Theme(usize),
     Exit,
 }
 
@@ -140,16 +145,16 @@ fn signed(word: usize) -> i32 {
 }
 
 /// Shows the menu at `at` and waits. `None` when dismissed.
-pub fn menu(hwnd: HWND, paused: bool, at: POINT) -> Option<Command> {
+pub fn menu(hwnd: HWND, paused: bool, theme: &str, at: POINT) -> Option<Command> {
     unsafe {
         let m = CreatePopupMenu().ok()?;
-        let chosen = track(m, hwnd, paused, at);
+        let chosen = track(m, hwnd, paused, theme, at);
         let _ = DestroyMenu(m);
         chosen
     }
 }
 
-unsafe fn track(m: HMENU, hwnd: HWND, paused: bool, at: POINT) -> Option<Command> {
+unsafe fn track(m: HMENU, hwnd: HWND, paused: bool, theme: &str, at: POINT) -> Option<Command> {
     unsafe {
         let items = [
             (OPEN, w!("&Open wheel")),
@@ -158,6 +163,16 @@ unsafe fn track(m: HMENU, hwnd: HWND, paused: bool, at: POINT) -> Option<Command
         ];
         for (id, text) in items {
             AppendMenuW(m, MF_STRING, id as usize, text).ok()?;
+        }
+        // Attached at once, so that destroying `m` destroys it too.
+        let themes = CreatePopupMenu().ok()?;
+        AppendMenuW(m, MF_POPUP, themes.0 as usize, w!("&Theme")).ok()?;
+        for (id, name) in (THEME..).zip(THEMES) {
+            AppendMenuW(themes, MF_STRING, id as usize, &HSTRING::from(name)).ok()?;
+            if name == theme {
+                let only = MF_BYCOMMAND.0;
+                CheckMenuRadioItem(themes, id, id, id, only).ok()?;
+            }
         }
         AppendMenuW(m, MF_SEPARATOR, 0, PCWSTR::null()).ok()?;
         AppendMenuW(m, MF_STRING, EXIT as usize, w!("E&xit")).ok()?;
@@ -182,7 +197,11 @@ fn command(id: u32) -> Option<Command> {
         SETTINGS => Command::Settings,
         PAUSE => Command::TogglePause,
         EXIT => Command::Exit,
-        _ => return None,
+        _ => {
+            let i = id.checked_sub(THEME)? as usize;
+            THEMES.get(i)?;
+            Command::Theme(i)
+        }
     })
 }
 
@@ -259,7 +278,10 @@ mod tests {
         assert_eq!(command(SETTINGS), Some(Command::Settings));
         assert_eq!(command(PAUSE), Some(Command::TogglePause));
         assert_eq!(command(EXIT), Some(Command::Exit));
-        for bad in [0, 5, 99, 0xFFFF] {
+        for (i, id) in (THEME..).take(THEMES.len()).enumerate() {
+            assert_eq!(command(id), Some(Command::Theme(i)));
+        }
+        for bad in [0, 5, THEME - 1, THEME + THEMES.len() as u32, 99, 0xFFFF] {
             assert_eq!(command(bad), None, "{bad}");
         }
     }
