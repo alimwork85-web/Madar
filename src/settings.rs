@@ -90,6 +90,8 @@ const MAX_ITEMS: usize = 8;
 
 /// `SS_ENDELLIPSIS` and `SS_NOPREFIX`, which live behind another crate feature.
 const SS_ELLIPSIS: WINDOW_STYLE = WINDOW_STYLE(0x4000);
+/// `SS_CENTERIMAGE`: the label sits on the line of its control.
+const SS_CENTER: WINDOW_STYLE = WINDOW_STYLE(0x0200);
 const SS_NOPREFIX_BIT: WINDOW_STYLE = WINDOW_STYLE(0x0080);
 
 const ID_HOTKEY: u16 = 100;
@@ -230,7 +232,8 @@ pub fn open(host: Host) -> windows::core::Result<()> {
             if IsIconic(hwnd).as_bool() {
                 let _ = ShowWindow(hwnd, SW_RESTORE);
             }
-            let _ = SetForegroundWindow(hwnd);
+            // An open Add or Edit window comes first.
+            let _ = SetForegroundWindow(GetLastActivePopup(hwnd));
         }
         return Ok(());
     }
@@ -294,14 +297,25 @@ pub fn open(host: Host) -> windows::core::Result<()> {
 /// IsDialogMessageW for the settings window, after the lists' own keys.
 /// True = handled; false when closed.
 pub fn translate(msg: &MSG) -> bool {
-    let Some((hwnd, apps, sites)) = with_state(|s| (s.hwnd, s.w.apps, s.w.sites)) else {
+    let Some((hwnd, w)) = with_state(|s| (s.hwnd, s.w)) else {
         return false;
     };
+    let Widgets {
+        mouse,
+        theme,
+        apps,
+        sites,
+        ..
+    } = w;
     if msg.message == WM_KEYDOWN {
         let vk = msg.wParam.0 as u32;
         if vk == VK_ESCAPE.0 as u32 {
             // Esc closes, unless the key belongs to another window of ours.
-            if unsafe { GetAncestor(msg.hwnd, GA_ROOT) } == hwnd {
+            // An open drop-down list takes Esc for itself.
+            let dropped = [mouse, theme]
+                .iter()
+                .any(|c| send(*c, CB_GETDROPPEDSTATE, 0, 0) != 0);
+            if !dropped && unsafe { GetAncestor(msg.hwnd, GA_ROOT) } == hwnd {
                 close();
                 return true;
             }
@@ -632,7 +646,15 @@ fn setup(hwnd: HWND) -> bool {
 }
 
 unsafe fn build_controls(hwnd: HWND) -> Widgets {
-    let label = |text: &str| unsafe { make(hwnd, w!("STATIC"), text, WS_CHILD | WS_VISIBLE, 0) };
+    let label = |text: &str| unsafe {
+        make(
+            hwnd,
+            w!("STATIC"),
+            text,
+            WS_CHILD | WS_VISIBLE | SS_CENTER,
+            0,
+        )
+    };
     let error = |id: u16| unsafe {
         make(
             hwnd,
@@ -759,7 +781,6 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
         WM_CLOSE => unsafe {
             let _ = DestroyWindow(hwnd);
         },
-        WM_CTLCOLORSTATIC => return unsafe { LRESULT(GetSysColorBrush(COLOR_BTNFACE).0 as isize) },
         WM_NCDESTROY => teardown(),
         _ => {}
     }
@@ -896,6 +917,13 @@ fn layout() {
             let _ = MoveWindow(h, x, y, w, y2, true);
         }
     }
+    repaint(hwnd);
+}
+
+/// Moved controls leave pieces of themselves behind otherwise.
+fn repaint(hwnd: HWND) {
+    let flags = RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN;
+    let _ = unsafe { RedrawWindow(Some(hwnd), None, None, flags) };
 }
 
 /// Control rectangles for the client size, computed with no API calls.
@@ -1079,6 +1107,13 @@ fn item(list: List, action: usize) {
         DOWN => shift(list, false),
         _ => {}
     }
+    // Add, Edit and Remove showed another window; focus returns to the list.
+    if action <= REMOVE
+        && let Some(w) = with_state(|s| s.w)
+    {
+        let target = if list == List::Apps { w.apps } else { w.sites };
+        let _ = unsafe { SetFocus(Some(target)) };
+    }
 }
 
 fn add(list: List) {
@@ -1251,6 +1286,14 @@ impl List {
             (Self::Apps, true) => "Edit app",
             (Self::Sites, false) => "Add site",
             (Self::Sites, true) => "Edit site",
+        }
+    }
+
+    /// The field that holds a program path.
+    fn browse_row(self) -> usize {
+        match self {
+            Self::Apps => 1,
+            Self::Sites => 2,
         }
     }
 
@@ -1454,7 +1497,6 @@ unsafe extern "system" fn hotkey_proc(
 // --- the Add/Edit dialog ---
 
 struct FormInit {
-    owner: HWND,
     list: List,
     texts: [String; 3],
     dpi: u32,
@@ -1462,7 +1504,6 @@ struct FormInit {
 
 struct Form {
     hwnd: HWND,
-    owner: HWND,
     list: List,
     dpi: u32,
     font: HFONT,
@@ -1513,7 +1554,6 @@ fn dialog(owner: HWND, list: List, texts: Option<[String; 3]>, editing: bool) ->
         let title = wide(list.title(editing));
         FORM_INIT.with(|c| {
             *c.borrow_mut() = Some(FormInit {
-                owner,
                 list,
                 texts: texts.unwrap_or_default(),
                 dpi,
@@ -1538,6 +1578,7 @@ fn dialog(owner: HWND, list: List, texts: Option<[String; 3]>, editing: bool) ->
             return None;
         };
 
+        use_dark_title(hwnd);
         let _ = EnableWindow(owner, false);
         let _ = ShowWindow(hwnd, SW_SHOW);
         if let Some(first) = with_form(|f| f.field[0]) {
@@ -1566,7 +1607,14 @@ fn dialog(owner: HWND, list: List, texts: Option<[String; 3]>, editing: bool) ->
             if msg.message == WM_KEYDOWN {
                 let vk = msg.wParam.0 as u32;
                 if vk == VK_RETURN.0 as u32 {
-                    form_ok();
+                    // Enter on a focused button presses that button.
+                    match with_form(|f| (f.browse, f.cancel)) {
+                        Some((browse, _)) if msg.hwnd == browse => form_browse(),
+                        Some((_, cancel)) if msg.hwnd == cancel => {
+                            with_form(|f| f.done = true);
+                        }
+                        _ => form_ok(),
+                    }
                     continue;
                 }
                 if vk == VK_ESCAPE.0 as u32 {
@@ -1618,7 +1666,15 @@ fn form_setup(hwnd: HWND) -> bool {
     let site = init.list == List::Sites;
     let font = message_font(init.dpi);
     let names = init.list.names();
-    let text_ctl = |text: &str| unsafe { make(hwnd, w!("STATIC"), text, WS_CHILD | WS_VISIBLE, 0) };
+    let text_ctl = |text: &str| unsafe {
+        make(
+            hwnd,
+            w!("STATIC"),
+            text,
+            WS_CHILD | WS_VISIBLE | SS_CENTER,
+            0,
+        )
+    };
     let err_ctl = |id: u16| unsafe {
         make(
             hwnd,
@@ -1633,20 +1689,24 @@ fn form_setup(hwnd: HWND) -> bool {
     let mut label = [HWND::default(); 3];
     let mut field = [HWND::default(); 3];
     let mut error = [HWND::default(); 3];
+    // Created after its field, so Tab reaches it right there.
+    let mut browse = HWND::default();
     for i in 0..3 {
         label[i] = text_ctl(names[i]);
         field[i] = edit_ctl();
+        if i == init.list.browse_row() {
+            browse = unsafe {
+                make(
+                    hwnd,
+                    w!("BUTTON"),
+                    "&Browse...",
+                    button_style(false),
+                    ID_BROWSE,
+                )
+            };
+        }
         error[i] = err_ctl(0);
     }
-    let browse = unsafe {
-        make(
-            hwnd,
-            w!("BUTTON"),
-            "&Browse...",
-            button_style(false),
-            ID_BROWSE,
-        )
-    };
     let hint = if site {
         text_ctl("Leave empty for the default browser.")
     } else {
@@ -1665,7 +1725,6 @@ fn form_setup(hwnd: HWND) -> bool {
 
     let form = Form {
         hwnd,
-        owner: init.owner,
         list: init.list,
         dpi: init.dpi,
         font,
@@ -1685,7 +1744,8 @@ fn form_setup(hwnd: HWND) -> bool {
     all.extend(field);
     all.extend(error);
     all.push(browse);
-    all.push(hint);
+    // Only a site has the hint.
+    all.extend(site.then_some(hint));
     all.push(ok);
     all.push(cancel);
     if all.iter().any(|h| h.is_invalid()) {
@@ -1718,7 +1778,7 @@ fn form_arrange(f: &Form, width: i32, height: i32) -> Vec<(HWND, i32, i32, i32, 
     let g = Geometry::new(f.dpi);
     let xc = g.margin + g.label;
     let cw = (width - xc - g.margin).max(px(60, f.dpi));
-    let browse_row = if f.list == List::Sites { 2 } else { 1 };
+    let browse_row = f.list.browse_row();
     let mut out = Vec::with_capacity(16);
     let mut y = g.margin;
     for i in 0..3 {
@@ -1730,7 +1790,7 @@ fn form_arrange(f: &Form, width: i32, height: i32) -> Vec<(HWND, i32, i32, i32, 
         };
         out.push((f.field[i], xc, y, w, g.ctl));
         if i == browse_row {
-            out.push((f.browse, xc + cw - g.btn_w, y, g.btn_w, g.btn_h));
+            out.push((f.browse, xc + cw - g.btn_w, y - 2, g.btn_w, g.btn_h));
         }
         let shown = f.errors[i].is_some();
         out.push((
@@ -1743,7 +1803,7 @@ fn form_arrange(f: &Form, width: i32, height: i32) -> Vec<(HWND, i32, i32, i32, 
         y += g.row + if shown { g.err } else { 0 };
     }
     if !f.hint.is_invalid() {
-        out.push((f.hint, g.margin, y, width - g.margin * 2, g.err));
+        out.push((f.hint, xc, y - px(8, f.dpi), cw, g.err));
         y += g.err;
     }
     let by = (height - g.margin - g.btn_h).max(y);
@@ -1768,6 +1828,7 @@ fn form_layout() {
             let _ = MoveWindow(h, x, y, w, h2, true);
         }
     }
+    repaint(hwnd);
 }
 
 fn form_errors() {
@@ -1841,7 +1902,7 @@ fn form_browse() {
     let Some(path) = pick_file(hwnd, list) else {
         return;
     };
-    let target = if list == List::Sites { 2 } else { 1 };
+    let target = list.browse_row();
     set_text(fields[target], &path);
     if text_of(fields[0]).trim().is_empty()
         && let Some(stem) = Path::new(&path).file_stem()
@@ -1964,7 +2025,6 @@ unsafe extern "system" fn form_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             }
             form_resize();
         }
-        WM_CTLCOLORSTATIC => return unsafe { LRESULT(GetSysColorBrush(COLOR_BTNFACE).0 as isize) },
         WM_NCDESTROY => form_teardown(),
         _ => {}
     }

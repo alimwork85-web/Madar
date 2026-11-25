@@ -1,6 +1,7 @@
 #![windows_subsystem = "windows"]
 
 mod actions;
+mod autostart;
 mod config;
 mod settings;
 mod tray;
@@ -8,6 +9,7 @@ mod trigger;
 mod wheel;
 
 use config::{Config, Mouse};
+use settings::{Field, Problem};
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, channel};
@@ -31,6 +33,8 @@ const CLASS: PCWSTR = w!("MadarWheel");
 const WM_SHOW_WHEEL: u32 = WM_APP + 10;
 /// An action finished; its result waits in `App::running`.
 const WM_ACTION_DONE: u32 = WM_APP + 11;
+/// Opens the settings window once the app is no longer borrowed.
+const WM_OPEN_SETTINGS: u32 = WM_APP + 12;
 const SUMMON_KEY: i32 = 1;
 const FIRST_WHEEL_KEY: i32 = 100;
 const ANIMATION: usize = 1;
@@ -64,6 +68,8 @@ const WHEEL_KEYS: [(HOT_KEY_MODIFIERS, VIRTUAL_KEY); 25] = {
 struct App {
     hwnd: HWND,
     config: Config,
+    /// The settings file could not be read; it is never replaced without asking.
+    unreadable: bool,
     painter: Painter,
     hook: MouseHook,
     tray: Tray,
@@ -237,19 +243,24 @@ impl App {
 
     /// Turns the shortcut and the mouse button on or off. Returns what failed.
     fn apply_triggers(&mut self) -> Vec<String> {
-        let mut problems = Vec::new();
+        let mut problems: Vec<String> = self.register_shortcut().into_iter().collect();
+        problems.extend(self.hook.update(self.button(), self.visible).err());
+        problems
+    }
+
+    fn register_shortcut(&mut self) -> Option<String> {
         let _ = unsafe { UnregisterHotKey(Some(self.hwnd), SUMMON_KEY) };
         let register = |(mods, key)| unsafe {
             RegisterHotKey(Some(self.hwnd), SUMMON_KEY, mods | MOD_NOREPEAT, key).is_ok()
         };
-        if !self.paused && !trigger::parse_hotkey(&self.config.hotkey).is_some_and(register) {
-            problems.push(format!(
+        let failed =
+            !self.paused && !trigger::parse_hotkey(&self.config.hotkey).is_some_and(register);
+        failed.then(|| {
+            format!(
                 "The shortcut {} is invalid or used by another program.",
                 self.config.hotkey
-            ));
-        }
-        problems.extend(self.hook.update(self.button(), self.visible).err());
-        problems
+            )
+        })
     }
 
     fn toggle_pause(&mut self) -> Vec<String> {
@@ -307,7 +318,12 @@ impl App {
                 self.hub_hot = false;
                 self.fail("Not ready");
             }
-            Target::Do(Action::AddItems) => self.fail("Not ready"),
+            Target::Do(Action::AddItems) => {
+                self.close();
+                let _ = unsafe {
+                    PostMessageW(Some(self.hwnd), WM_OPEN_SETTINGS, WPARAM(0), LPARAM(0))
+                };
+            }
             Target::Do(action) => self.launch(action),
         }
     }
@@ -453,6 +469,112 @@ fn warn(text: &str) {
     };
 }
 
+fn open_settings() {
+    let host = settings::Host {
+        get: current_config,
+        apply: apply_config,
+    };
+    if let Err(e) = settings::open(host) {
+        warn(&format!("The settings window could not open: {e}"));
+    }
+}
+
+fn current_config() -> Config {
+    let mut c = with_app(|a| a.config.clone()).unwrap_or_default();
+    // Windows may have dropped the entry, so the registry decides.
+    c.autostart = autostart::enabled().unwrap_or(c.autostart);
+    c
+}
+
+fn changed(old: &Config, new: &Config) -> Field {
+    if old.hotkey != new.hotkey {
+        Field::Hotkey
+    } else if old.mouse != new.mouse {
+        Field::Mouse
+    } else if old.theme != new.theme {
+        Field::Theme
+    } else if old.autostart != new.autostart {
+        Field::Autostart
+    } else if old.apps != new.apps {
+        Field::Apps
+    } else {
+        Field::Sites
+    }
+}
+
+/// Saves and applies one change. On an error everything is as it was.
+fn apply_config(new: Config) -> Result<(), Problem> {
+    let old = current_config();
+    if new == old {
+        return Ok(());
+    }
+    let field = changed(&old, &new);
+    let problem = |text: String| Problem { field, text };
+    keep_unreadable_file().map_err(problem)?;
+    let applied = match field {
+        Field::Autostart => autostart::set(new.autostart),
+        _ => with_app(|a| {
+            a.config = new.clone();
+            match field {
+                Field::Hotkey => a.register_shortcut().map_or(Ok(()), Err),
+                Field::Mouse => a.hook.update(a.button(), a.visible),
+                _ => Ok(()),
+            }
+        })
+        .unwrap_or_else(|| Err("Madar is busy.".into())),
+    };
+    let saved = applied.and_then(|()| {
+        config::save(&settings_path(), &new).map_err(|e| format!("Could not save: {e}"))
+    });
+    if let Err(text) = saved {
+        if field == Field::Autostart {
+            let _ = autostart::set(old.autostart);
+        }
+        with_app(|a| {
+            a.config = old;
+            a.apply_triggers();
+        });
+        return Err(problem(text));
+    }
+    with_app(|a| {
+        a.config = new;
+        a.unreadable = false;
+        if a.visible {
+            a.go(a.page);
+        }
+    });
+    Ok(())
+}
+
+/// Asks before the first save over a file that could not be read, and copies it.
+fn keep_unreadable_file() -> Result<(), String> {
+    let path = settings_path();
+    if !with_app(|a| a.unreadable).unwrap_or(false) || !path.exists() {
+        return Ok(());
+    }
+    let answer = unsafe {
+        MessageBoxW(
+            Some(GetActiveWindow()),
+            w!(
+                "The settings file could not be read. Replace it with the settings shown here?\n\nA copy of the old file is kept next to it."
+            ),
+            w!("Madar"),
+            MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2,
+        )
+    };
+    if answer != IDYES {
+        return Err("Not saved.".into());
+    }
+    let copy = (1..100)
+        .map(|n| path.with_file_name(format!("config.broken-{n}.json")))
+        .find(|p| !p.exists())
+        .ok_or("Could not copy the old file.")?;
+    match std::fs::copy(&path, copy) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(format!("Could not copy the old file: {e}")),
+    }
+}
+
 /// The menu runs its own message loop, so the app must not be borrowed here.
 fn tray_menu(hwnd: HWND, at: POINT) {
     let Some(paused) = with_app(|a| a.paused) else {
@@ -462,8 +584,7 @@ fn tray_menu(hwnd: HWND, at: POINT) {
         Some(tray::Command::OpenWheel) => {
             with_app(|a| a.open(false));
         }
-        // TODO: the settings window is the next task.
-        Some(tray::Command::Settings) => warn("The settings window is not ready yet."),
+        Some(tray::Command::Settings) => open_settings(),
         Some(tray::Command::TogglePause) => {
             let problems = with_app(App::toggle_pause).unwrap_or_default();
             if !problems.is_empty() {
@@ -552,9 +673,14 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
                 a.draw();
             }
         }),
+        WM_OPEN_SETTINGS => {
+            open_settings();
+            Some(())
+        }
         WM_ACTION_DONE => with_app(App::launched),
         WM_DISPLAYCHANGE => with_app(App::close),
         WM_DESTROY => {
+            settings::close();
             unsafe { PostQuitMessage(0) };
             Some(())
         }
@@ -600,11 +726,12 @@ fn create_window() -> windows::core::Result<HWND> {
     }
 }
 
-fn start(config: Config) -> windows::core::Result<()> {
+fn start(config: Config, unreadable: bool) -> windows::core::Result<()> {
     let hwnd = create_window()?;
     let mut app = App {
         hwnd,
         config,
+        unreadable,
         painter: Painter::new()?,
         hook: MouseHook::new(hwnd),
         tray: Tray::new(hwnd),
@@ -651,7 +778,7 @@ fn main() {
         ));
         Config::default()
     });
-    if let Err(e) = start(config) {
+    if let Err(e) = start(config, !problems.is_empty()) {
         return warn(&format!("Madar could not start: {e}"));
     }
     problems.extend(with_app(App::apply_triggers).unwrap_or_default());
@@ -661,8 +788,10 @@ fn main() {
     unsafe {
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).0 > 0 {
-            let _ = TranslateMessage(&msg);
-            DispatchMessageW(&msg);
+            if !settings::translate(&msg) {
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
         }
     }
     // Stops the hook thread before the process ends.
