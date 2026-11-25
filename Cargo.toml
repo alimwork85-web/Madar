@@ -3,6 +3,9 @@ name = "madar"
 version = "0.2.0"
 edition = "2024"
 authors = ["Ali Alhumedi"]
+description = "A wheel of eight places at the mouse pointer, for Windows 11"
+license = "MIT"
+repository = "https://github.com/alimwork85-web/Madar"
 publish = false
 
 [dependencies]

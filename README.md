@@ -1,16 +1,38 @@
-# Madar
+<p align="center"><img src="assets/banner.svg" alt="Madar: eight places at your pointer. Developer: Ali Alhumedi" width="100%"></p>
 
-Madar is a personal tool for Windows 11. It shows a wheel of eight places at the pointer.
+<p align="center">
+<a href="https://github.com/alimwork85-web/Madar/releases/latest"><img src="https://img.shields.io/github/v/release/alimwork85-web/Madar?color=7CC4F0&labelColor=0F151C" alt="Latest release"></a>
+<a href="https://github.com/alimwork85-web/Madar/releases"><img src="https://img.shields.io/github/downloads/alimwork85-web/Madar/total?color=FF9A6B&labelColor=1B100B" alt="Downloads"></a>
+<img src="https://img.shields.io/badge/Windows-11-C7A6FF?labelColor=150F22" alt="Windows 11">
+<img src="https://img.shields.io/badge/Rust-2024-F4C04E?labelColor=1B140A" alt="Rust 2024">
+<a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-7FDDB0?labelColor=0B1A14" alt="MIT license"></a>
+</p>
+
+Madar shows a wheel of eight places at the mouse pointer: your programs, your sites, a Google search of the copied text,
+system commands, and volume, brightness and Bluetooth. It is one EXE, makes no network calls and needs no account.
+
 Developer: Ali Alhumedi.
 
-## Opening the wheel
+<h2><img src="assets/titles/themes.svg" alt="Eight themes"></h2>
+
+![The wheel in each theme: Space Gray, Midnight, Ember, Grape, Solar, Meadow, Aqua and Porcelain](assets/themes.png)
+
+<h2><img src="assets/titles/download.svg" alt="Download"></h2>
+
+Take `Madar-v0.2.0-windows-x64.exe` from the [latest release](https://github.com/alimwork85-web/Madar/releases/latest) and run it.
+There is no installer. The EXE is not signed, so SmartScreen may warn: More info, then Run anyway.
+A `.sha256` file next to it holds its checksum.
+
+The interface is in English.
+
+<h2><img src="assets/titles/opening.svg" alt="Opening the wheel"></h2>
 
 - Press Ctrl+Space. This is the default; Settings can change it.
 - Press the mouse button chosen in Settings: Back (the default), Forward or Ctrl + Middle. None turns it off.
 - Click the tray icon. A right click shows its menu: Open wheel, Settings, Pause, Theme, Exit.
 - Start madar.exe again. A copy that is already running shows its wheel and the new one exits.
 
-## Using it
+<h2><img src="assets/titles/using.svg" alt="Using it"></h2>
 
 - Click a slot to open it. Click outside the wheel to close it.
 - Hold the summon button and drag, then release on a slot.
@@ -23,7 +45,7 @@ Developer: Ali Alhumedi.
 The hub shows Close at the top level and Back inside a folder. A highlighted slot shows its name there.
 On the Sound & Light page the hub shows the level as well, under the slot's name.
 
-## Places
+<h2><img src="assets/titles/places.svg" alt="Places"></h2>
 
 Every page has eight places. At the top level, clockwise from the top:
 
@@ -41,7 +63,7 @@ Every page has eight places. At the top level, clockwise from the top:
 While a list is not full, its next free place reads Add app or Add site and opens Settings at that list.
 All other free places stay empty and the keyboard skips them.
 
-## System
+<h2><img src="assets/titles/system.svg" alt="System"></h2>
 
 System opens a page of its own. Clockwise from the top: Run, Task Manager, Restart Explorer, Admin Terminal,
 Downloads, Shut down, Restart PC, Screen off.
@@ -57,7 +79,7 @@ Downloads opens the Downloads folder.
 Screen off closes the wheel and turns the screens off 1 s later. The PC keeps working;
 the mouse or a key turns them on. Whether Windows then asks to sign in is a Windows setting.
 
-## Google
+<h2><img src="assets/titles/google.svg" alt="Google"></h2>
 
 One press opens the results for the copied text in the default browser, or Google itself when there is none.
 The copied text goes to Google through the browser. Madar itself makes no network calls.
@@ -65,7 +87,7 @@ The copied text goes to Google through the browser. Madar itself makes no networ
 Text counts as none when the program that copied it excludes it from others, when it is longer than 300 characters,
 when it was copied more than 2 minutes ago, or when it was copied before Madar started. The clipboard is read and never changed.
 
-## Sound & Light
+<h2><img src="assets/titles/sound.svg" alt="Sound &amp; Light"></h2>
 
 Sound & Light opens a page of its own. Clockwise from the top: Volume up, Mute (Unmute while muted), Volume down,
 Bluetooth, Brightness up, Brightness down, then the output devices by name, the one in use with a check mark.
@@ -90,10 +112,12 @@ Windows documents no call for this, so Madar uses an undocumented one in a short
 and opens the sound page of Windows Settings when the change did not happen.
 The interface layout comes from com-policy-config by sidit77, under the MIT licence.
 
-## Settings
+<h2><img src="assets/titles/settings.svg" alt="Settings"></h2>
 
 The Settings window changes the shortcut, the mouse button, the theme, the size, starting with Windows, Show names and the lists.
 
+- Start with Windows follows Task Manager: an entry turned off there shows as off here. If the EXE was moved,
+  running it once from its new place corrects the entry.
 - A theme is picked by name from 8 themes, here or under Theme in the tray menu. Midnight is the default.
   The settings windows and the tray menu take its colors too.
 - Size is how large the wheel is: Large (the default), Medium (85%) or Small (75%). The next opening uses it.
@@ -109,7 +133,7 @@ The Settings window changes the shortcut, the mouse button, the theme, the size,
 - Add from Start is off for Sites. Move to... is off for Sites and when both other lists are full.
 - Each list holds at most 8 items. Changes save at once; a failing control shows its error underneath.
 
-## The settings file
+<h2><img src="assets/titles/file.svg" alt="The settings file"></h2>
 
 Settings live in `%APPDATA%\Madar\config.json`. A key that is missing keeps its default, so a file
 from an earlier version still loads.
@@ -118,7 +142,13 @@ The first change then asks before replacing it, and keeps a copy next to it.
 A save that fails leaves the previous file in place.
 The `MADAR_DIR` environment variable points Madar at another folder, for tests.
 
-## Building
+<h2><img src="assets/titles/measured.svg" alt="Measured"></h2>
+
+![Start the program: 35 ms. Show the wheel: 6 ms. Medians of 15 runs.](assets/performance.svg)
+
+Idle in the tray it used 12 MB of private memory and no measurable CPU time over 10 s.
+
+<h2><img src="assets/titles/building.svg" alt="Building"></h2>
 
 Rust stable with the MSVC toolchain, then:
 
@@ -127,6 +157,6 @@ Rust stable with the MSVC toolchain, then:
 The result is `target\release\madar.exe`. There are two direct dependencies: `serde_json` and `windows`.
 The program makes no network calls, needs no account and has no updater.
 
-## Copyright
+<h2><img src="assets/titles/license.svg" alt="License"></h2>
 
-© 2026 Ali Alhumedi. All rights reserved.
+MIT, see [LICENSE](LICENSE). © 2026 Ali Alhumedi. [THIRD-PARTY.txt](THIRD-PARTY.txt) holds the notice of com-policy-config.

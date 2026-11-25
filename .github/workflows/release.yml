@@ -1,0 +1,40 @@
+name: release
+
+# Publishing a GitHub release builds the EXE from that tag and attaches it, with its checksum.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  windows-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Name the EXE and checksum it
+        shell: bash
+        run: |
+          version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          test "v$version" = "$TAG"
+          asset="Madar-v${version}-windows-x64.exe"
+          cp target/release/madar.exe "$asset"
+          sha256sum "$asset" > "$asset.sha256"
+          cat "$asset.sha256"
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+
+      - name: Attach to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" Madar-v*-windows-x64.exe Madar-v*-windows-x64.exe.sha256 --clobber
