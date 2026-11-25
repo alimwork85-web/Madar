@@ -2,6 +2,7 @@
 
 mod actions;
 mod config;
+mod settings;
 mod tray;
 mod trigger;
 mod wheel;
