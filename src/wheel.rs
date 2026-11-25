@@ -40,6 +40,7 @@ pub enum Action {
     ScreenOff,
     ShutDown,
     RestartPc,
+    Downloads,
     RestartExplorer,
     Settings,
     MyApp(usize),
@@ -123,6 +124,7 @@ pub fn slots(page: Page, c: &Config) -> Vec<Slot> {
             slot("Screen off", '\u{E7F4}', Do(ScreenOff)),
             slot("Shut down", '\u{E7E8}', Do(ShutDown)),
             slot("Restart PC", '\u{E777}', Do(RestartPc)),
+            slot("Downloads", '\u{E896}', Do(Downloads)),
         ]),
         Page::MyApps => folder(
             (c.my_apps.iter().enumerate())
@@ -329,7 +331,7 @@ mod tests {
         assert_eq!(system[4].target, Target::Do(Action::ScreenOff));
         assert_eq!(system[5].target, Target::Do(Action::ShutDown));
         assert_eq!(system[6].target, Target::Do(Action::RestartPc));
-        assert_eq!(system[7].target, Target::Empty);
+        assert_eq!(system[7].target, Target::Do(Action::Downloads));
         assert_eq!(slots(Page::Sound, &c).len(), 8);
         assert_eq!(
             slots(Page::Apps, &c)[0].target,

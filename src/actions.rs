@@ -28,6 +28,8 @@ const RUN: &str = "shell:::{2559a1f3-21d7-11d4-bdaf-00c04f60b9f0}";
 pub const START_APPS: &str = "shell:AppsFolder\\";
 /// Windows Terminal.
 const TERMINAL: &str = "Microsoft.WindowsTerminal_8wekyb3d8bbwe!App";
+/// The folder, wherever the user moved it.
+const DOWNLOADS: &str = "shell:Downloads";
 const SETTINGS: &str = "ms-settings:";
 const BLUETOOTH_SETTINGS: &str = "ms-settings:bluetooth";
 const SOUND_SETTINGS: &str = "ms-settings:sound";
@@ -61,6 +63,11 @@ fn plan(action: Action, c: &Config) -> Result<Plan, String> {
         }),
         Action::TaskManager => Ok(Shell {
             file: format!("{}\\taskmgr.exe", system_dir()?),
+            args: String::new(),
+            dir: None,
+        }),
+        Action::Downloads => Ok(Shell {
+            file: DOWNLOADS.to_string(),
             args: String::new(),
             dir: None,
         }),
@@ -336,6 +343,14 @@ mod tests {
             panic!("settings go through the shell");
         };
         assert_eq!(file, "ms-settings:bluetooth");
+        assert_eq!(
+            plan(Action::Downloads, &c).unwrap(),
+            Plan::Shell {
+                file: "shell:Downloads".to_string(),
+                args: String::new(),
+                dir: None,
+            }
+        );
         assert_eq!(
             plan(Action::Terminal, &c).unwrap(),
             Plan::Admin {
