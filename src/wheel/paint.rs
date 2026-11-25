@@ -374,7 +374,12 @@ impl Painter {
         let n = s.slots.len();
         for (i, slot) in s.slots.iter().enumerate() {
             if slot.target == Target::Empty {
-                unsafe { rt.FillGeometry(&self.slot_shape(i, n, 0.0)?, &faint, None) };
+                unsafe {
+                    rt.FillGeometry(&self.slot_shape(i, n, 0.0)?, &faint, None);
+                    if p.outline {
+                        rt.DrawGeometry(&self.slot_shape(i, n, 0.5)?, &disabled, 1.0, None);
+                    }
+                }
                 continue;
             }
             let off = slot.target == Target::Disabled;

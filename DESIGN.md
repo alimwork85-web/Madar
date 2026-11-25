@@ -43,7 +43,7 @@ Hub text: `Close` at the root, `Back` inside a folder, the slot name while hover
 | Pressed | accent color, 2 px inner outline in on-accent |
 | Disabled | hub color, text at 60%, label `Not ready` in the hub on hover |
 | First free place in My Apps, Apps, Tools or Sites | `Add app` or `Add site`, opens Settings at that list |
-| Other free places | slot color at 35% over the plate (80% in Aqua), no text, no hover, skipped by the keyboard |
+| Other free places | slot color at 35% over the plate (80% in Aqua; in High Contrast a 1 px outline in its disabled text color), no text, no hover, skipped by the keyboard |
 | Error | message in the hub for 4 s, wheel stays open |
 
 ## Themes
