@@ -6,6 +6,7 @@
 
 use crate::config::{Config, is_web_url};
 use crate::maintenance;
+use crate::power;
 use crate::search;
 use crate::wheel::Action;
 use std::os::windows::ffi::OsStrExt;
@@ -120,6 +121,7 @@ fn plan(action: Action, c: &Config) -> Result<Plan, String> {
         | Action::Bluetooth
         | Action::RestartExplorer
         | Action::ScreenOff
+        | Action::ShutDown
         | Action::BrightnessUp
         | Action::BrightnessDown
         | Action::VolumeUp
@@ -177,6 +179,7 @@ fn system_dir() -> Result<String, String> {
 pub fn run(action: Action, c: &Config) -> Result<(), String> {
     match action {
         Action::RestartExplorer => maintenance::restart_explorer(),
+        Action::ShutDown => power::leave(power::OFF),
         _ => open(action, c),
     }
 }

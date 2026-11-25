@@ -1,5 +1,6 @@
-//! Restarting Explorer. It waits, so it is not for the wheel's thread.
+//! Restarting Explorer, and the second press that risky actions wait for. It waits, so it is not for the wheel's thread.
 
+use crate::wheel::Action;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
@@ -11,8 +12,18 @@ use windows::Win32::System::Threading::*;
 use windows::Win32::UI::WindowsAndMessaging::{GetShellWindow, GetWindowThreadProcessId};
 use windows::core::PWSTR;
 
-pub const CONFIRM: &str = "Folders will close. Press again";
-pub const WORKING: &str = "Restarting Explorer...";
+/// What the hub shows after the first press and while working, for actions
+/// that wait for a second press. Each first text is unique to its action.
+pub fn texts(action: Action) -> Option<(&'static str, &'static str)> {
+    match action {
+        Action::RestartExplorer => {
+            Some(("Folders will close. Press again", "Restarting Explorer..."))
+        }
+        Action::ShutDown => Some(("Shut down? Press again", "Shutting down...")),
+        _ => None,
+    }
+}
+
 /// Repeats of a held key and double clicks are not a second press.
 const LOCK: Duration = Duration::from_secs(1);
 const SHELL_TIME: Duration = Duration::from_secs(10);

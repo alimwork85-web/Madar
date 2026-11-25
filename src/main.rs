@@ -8,6 +8,7 @@ mod brightness;
 mod config;
 mod icons;
 mod maintenance;
+mod power;
 mod search;
 mod settings;
 mod tray;
@@ -112,7 +113,7 @@ struct App {
     /// Result of the action running on a worker thread.
     running: Option<Receiver<Result<(), String>>>,
     /// The last press on Restart Explorer.
-    restart_pressed: Option<Instant>,
+    risky_pressed: Option<Instant>,
     /// Open while the wheel uses the sound.
     audio: Option<Audio>,
     /// The last answer; cleared when the wheel closes.
@@ -630,21 +631,27 @@ impl App {
                 self.hub_hot = false;
                 self.switch_bluetooth();
             }
-            Target::Do(Action::RestartExplorer) if self.running.is_none() => {
+            Target::Do(action) if maintenance::texts(action).is_some() => {
+                let Some((confirm, working)) = maintenance::texts(action) else {
+                    return;
+                };
+                if self.running.is_some() {
+                    // A press during the work changes nothing.
+                    self.message = message;
+                    return;
+                }
                 let now = Instant::now();
-                let asked = message.as_deref() == Some(maintenance::CONFIRM);
-                let last = self.restart_pressed.replace(now).filter(|_| asked);
+                let asked = message.as_deref() == Some(confirm);
+                let last = self.risky_pressed.replace(now).filter(|_| asked);
                 if maintenance::confirmed(last, now) {
-                    self.launch(Action::RestartExplorer);
-                    self.tell(maintenance::WORKING);
+                    self.launch(action);
+                    self.tell(working);
                     // Shown until the result comes.
                     let _ = unsafe { KillTimer(Some(self.hwnd), MESSAGE) };
                 } else {
-                    self.tell(maintenance::CONFIRM);
+                    self.tell(confirm);
                 }
             }
-            // A press during the restart changes nothing.
-            Target::Do(Action::RestartExplorer) => self.message = message,
             Target::Do(action @ (Action::BrightnessUp | Action::BrightnessDown)) => {
                 // The hub shows the value, also when a digit was pressed.
                 self.hot = Some(i);
@@ -1135,7 +1142,7 @@ fn start(config: Config, unreadable: bool) -> windows::core::Result<()> {
         message: None,
         animation: None,
         running: None,
-        restart_pressed: None,
+        risky_pressed: None,
         audio: None,
         volume: None,
         devices: Vec::new(),
