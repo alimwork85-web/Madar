@@ -20,7 +20,7 @@ use windows::core::{BSTR, Error, PCWSTR, Result, w};
 /// An answer waits in `Light`.
 pub const WM_LIGHT: u32 = WM_APP + 16;
 /// Percent per press.
-pub const STEP: i32 = 3;
+pub const STEP: i32 = 2;
 /// Lower could look like a screen that is off.
 const LOWEST: i32 = 5;
 /// The value read back follows a change late, so the one just set counts.
@@ -191,11 +191,11 @@ mod tests {
     #[test]
     fn stays_in_range() {
         let turn = |now, by| changed(now, &Order::Change(by));
-        assert_eq!((turn(10, STEP), turn(34, STEP)), (13, 37));
-        assert_eq!((turn(10, -STEP), turn(5, -STEP)), (7, 5));
+        assert_eq!((turn(10, STEP), turn(34, STEP)), (12, 36));
+        assert_eq!((turn(10, -STEP), turn(5, -STEP)), (8, 5));
         // Darker than the limit: down changes nothing, up leaves it.
         assert_eq!((turn(0, -STEP), turn(3, -2)), (0, 3));
-        assert_eq!((turn(0, STEP), turn(0, 2)), (3, 2));
+        assert_eq!((turn(0, STEP), turn(0, 2)), (2, 2));
         assert_eq!((turn(6, -2), turn(99, 2)), (5, 100));
         assert_eq!(changed(3, &Order::Read), 3);
     }
