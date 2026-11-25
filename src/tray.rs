@@ -3,6 +3,8 @@
 //! Nothing here is global: a `Tray` owns the icon it registered and removes it
 //! when dropped, so Explorer restarts are handled by calling `add` again.
 
+pub mod look;
+
 use crate::config::THEMES;
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, POINT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -177,13 +179,32 @@ unsafe fn track(m: HMENU, hwnd: HWND, paused: bool, theme: &str, at: POINT) -> O
         AppendMenuW(m, MF_SEPARATOR, 0, PCWSTR::null()).ok()?;
         AppendMenuW(m, MF_STRING, EXIT as usize, w!("E&xit")).ok()?;
         SetMenuDefaultItem(m, OPEN, 0).ok()?;
+        // Marked in the order added above. Kept until the menu is gone.
+        let _painting = look::begin(m, theme, at).inspect(|_| {
+            let pause = if paused { look::RESUME } else { PAUSE as usize };
+            let root = [
+                OPEN as usize,
+                SETTINGS as usize,
+                pause,
+                look::THEMES_MENU,
+                look::SEPARATOR,
+                EXIT as usize,
+            ];
+            for (i, data) in (0..).zip(root) {
+                let _ = look::own(m, i, data);
+            }
+            for i in 0..THEMES.len() as u32 {
+                let _ = look::own(themes, i, (THEME + i) as usize);
+            }
+        });
         let _ = SetForegroundWindow(hwnd);
         let align = if GetSystemMetrics(SM_MENUDROPALIGNMENT) != 0 {
             TPM_RIGHTALIGN
         } else {
             TPM_LEFTALIGN
         };
-        let flags = TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON | align;
+        // Without the fade, which would show the menu before its edge is drawn.
+        let flags = TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON | TPM_NOANIMATION | align;
         let id = TrackPopupMenuEx(m, flags.0, at.x, at.y, hwnd, None);
         // Lets the menu close properly when the click is outside it.
         let _ = PostMessageW(Some(hwnd), WM_NULL, WPARAM(0), LPARAM(0));

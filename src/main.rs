@@ -978,6 +978,9 @@ fn tray_menu(hwnd: HWND, at: POINT) {
 }
 
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
+    if let Some(done) = tray::look::handle(msg, w, l) {
+        return done;
+    }
     let client = || {
         let mut p = POINT {
             x: l.0 as i16 as i32,

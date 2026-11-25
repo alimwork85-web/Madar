@@ -95,7 +95,7 @@ The interface layout comes from com-policy-config by sidit77, under the MIT lice
 The Settings window changes the shortcut, the mouse button, the theme, starting with Windows, Show names and the lists.
 
 - A theme is picked by name from 8 themes, here or under Theme in the tray menu. Midnight is the default.
-  The settings windows take its colors too.
+  The settings windows and the tray menu take its colors too.
 - Show names off draws each slot as its icon alone, without label or digit. The digits still work.
 - One list shows at a time: My Apps, Apps, Tools or Sites.
 - Add asks for a name, a program path and optional arguments, or for a site a name, an http or https

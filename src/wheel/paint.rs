@@ -592,7 +592,7 @@ impl Painter {
     }
 }
 
-fn color(c: u32) -> D2D1_COLOR_F {
+pub fn color(c: u32) -> D2D1_COLOR_F {
     let ch = |s: u32| (c >> s & 255) as f32 / 255.0;
     D2D1_COLOR_F {
         r: ch(16),
