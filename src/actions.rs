@@ -19,12 +19,14 @@ use windows::Win32::UI::Shell::{
     SEE_MASK_FLAG_NO_UI, SEE_MASK_NOASYNC, SHELLEXECUTEINFOW, ShellExecuteExW,
 };
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
-use windows::core::{HRESULT, PCWSTR};
+use windows::core::{HRESULT, PCWSTR, w};
 
 /// The shell folder behind the Run dialog.
 const RUN: &str = "shell:::{2559a1f3-21d7-11d4-bdaf-00c04f60b9f0}";
 /// The folder behind the Start menu's list; an app id follows.
 pub const START_APPS: &str = "shell:AppsFolder\\";
+/// Windows Terminal.
+const TERMINAL: &str = "Microsoft.WindowsTerminal_8wekyb3d8bbwe!App";
 const SETTINGS: &str = "ms-settings:";
 const BLUETOOTH_SETTINGS: &str = "ms-settings:bluetooth";
 const SOUND_SETTINGS: &str = "ms-settings:sound";
@@ -37,6 +39,8 @@ enum Plan {
         args: String,
         dir: Option<PathBuf>,
     },
+    /// ShellExecuteExW, after Windows asks for administrator rights.
+    Admin { file: String },
     /// std::process::Command with exactly one argument.
     Spawn { exe: PathBuf, arg: String },
 }
@@ -58,6 +62,9 @@ fn plan(action: Action, c: &Config) -> Result<Plan, String> {
             file: format!("{}\\taskmgr.exe", system_dir()?),
             args: String::new(),
             dir: None,
+        }),
+        Action::Terminal => Ok(Admin {
+            file: format!("{START_APPS}{TERMINAL}"),
         }),
         Action::MyApp(i) | Action::App(i) | Action::Tool(i) => {
             let apps = match action {
@@ -175,7 +182,8 @@ pub fn run(action: Action, c: &Config) -> Result<(), String> {
 
 fn open(action: Action, c: &Config) -> Result<(), String> {
     match plan(action, c)? {
-        Plan::Shell { file, args, dir } => shell(&file, &args, dir.as_deref()),
+        Plan::Shell { file, args, dir } => shell(&file, &args, dir.as_deref(), PCWSTR::null()),
+        Plan::Admin { file } => shell(&file, "", None, w!("runas")),
         Plan::Spawn { exe, arg } => spawn(&exe, &arg),
     }
 }
@@ -184,7 +192,7 @@ fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-fn shell(file: &str, args: &str, dir: Option<&Path>) -> Result<(), String> {
+fn shell(file: &str, args: &str, dir: Option<&Path>, verb: PCWSTR) -> Result<(), String> {
     let file = wide(file);
     let args = wide(args);
     let dir: Option<Vec<u16>> = dir.map(|p| p.as_os_str().encode_wide().chain([0]).collect());
@@ -197,7 +205,7 @@ fn shell(file: &str, args: &str, dir: Option<&Path>) -> Result<(), String> {
             cbSize: size_of::<SHELLEXECUTEINFOW>() as u32,
             fMask: SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI,
             hwnd: HWND::default(),
-            lpVerb: PCWSTR::null(),
+            lpVerb: verb,
             lpFile: PCWSTR(file.as_ptr()),
             lpParameters: PCWSTR(args.as_ptr()),
             lpDirectory: dir.as_ref().map_or(PCWSTR::null(), |d| PCWSTR(d.as_ptr())),
@@ -322,6 +330,12 @@ mod tests {
             panic!("settings go through the shell");
         };
         assert_eq!(file, "ms-settings:bluetooth");
+        assert_eq!(
+            plan(Action::Terminal, &c).unwrap(),
+            Plan::Admin {
+                file: "shell:AppsFolder\\Microsoft.WindowsTerminal_8wekyb3d8bbwe!App".to_string(),
+            }
+        );
         let Plan::Shell { file, args, dir } = plan(Action::TaskManager, &c).unwrap() else {
             panic!("Task Manager must go through the shell");
         };
