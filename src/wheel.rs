@@ -68,14 +68,17 @@ fn slot(label: &str, icon: char, target: Target) -> Slot {
 pub fn slots(page: Page, c: &Config) -> Vec<Slot> {
     use Action::*;
     use Target::*;
-    let folder = |mut items: Vec<Slot>, add: &str| {
-        if items.len() <= PLACES {
-            items.push(slot(add, '\u{E710}', Do(AddItems)));
-        }
+    let fill = |mut items: Vec<Slot>| {
         while items.len() < PLACES {
             items.push(slot("", ' ', Empty));
         }
         items
+    };
+    let folder = |mut items: Vec<Slot>, add: &str| {
+        if items.len() <= PLACES {
+            items.push(slot(add, '\u{E710}', Do(AddItems)));
+        }
+        fill(items)
     };
     match page {
         Page::Root => vec![
@@ -87,11 +90,11 @@ pub fn slots(page: Page, c: &Config) -> Vec<Slot> {
             slot("Sites", '\u{E774}', Open(Page::Sites)),
             slot("Google", '\u{E721}', Disabled),
         ],
-        Page::System => vec![
+        Page::System => fill(vec![
             slot("Run", '\u{E756}', Do(Run)),
             slot("Task Manager", '\u{E9D9}', Do(TaskManager)),
             slot("Maintenance", '\u{E90F}', Disabled),
-        ],
+        ]),
         Page::Apps => folder(
             (c.apps.iter().enumerate())
                 .map(|(i, a)| slot(&a.label, '\u{ECAA}', Do(App(i))))
@@ -209,6 +212,7 @@ mod tests {
     fn pages() {
         let mut c = Config::default();
         assert_eq!(slots(Page::Root, &c).len(), 7);
+        assert_eq!(slots(Page::System, &c).len(), 7);
         assert_eq!(
             slots(Page::Apps, &c)[0].target,
             Target::Do(Action::AddItems)

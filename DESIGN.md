@@ -20,7 +20,7 @@ Signature: the seven-slot wheel and the seven-slot app icon are the same shape.
 | Label / digit | 13 / 12, Segoe UI Variable Text, regular |
 | First slot | centered at 12 o'clock, then clockwise |
 
-Order: System, Settings, Sound, Bluetooth, Apps, Sites, Google. A folder replaces the slots in place. Apps and Sites always show at least 7 places, at most 8.
+Order: System, Settings, Sound, Bluetooth, Apps, Sites, Google. A folder replaces the slots in place. Every folder shows at least 7 places, at most 8.
 Hub text: `Close` at the root, `Back` inside a folder, the slot name while hovering. Labels wrap to two lines, then end with an ellipsis.
 
 ## Slot states
