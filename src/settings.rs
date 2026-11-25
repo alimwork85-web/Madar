@@ -95,7 +95,7 @@ const TEXT_MAX: usize = 2048;
 const MAX_ITEMS: usize = 8;
 
 /// `SS_ENDELLIPSIS` and `SS_NOPREFIX`, which live behind another crate feature.
-const SS_ELLIPSIS: WINDOW_STYLE = WINDOW_STYLE(0x4000);
+pub const SS_ELLIPSIS: WINDOW_STYLE = WINDOW_STYLE(0x4000);
 /// `SS_CENTERIMAGE`: the label sits on the line of its control.
 const SS_CENTER: WINDOW_STYLE = WINDOW_STYLE(0x0200);
 const SS_NOPREFIX_BIT: WINDOW_STYLE = WINDOW_STYLE(0x0080);
@@ -376,7 +376,7 @@ fn window_size(dpi: u32) -> (i32, i32) {
     (rc.right - rc.left, rc.bottom - rc.top)
 }
 
-fn px(logical: i32, dpi: u32) -> i32 {
+pub fn px(logical: i32, dpi: u32) -> i32 {
     (logical * dpi as i32 + 48) / 96
 }
 
@@ -384,14 +384,14 @@ fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-fn set_text(h: HWND, text: &str) {
+pub fn set_text(h: HWND, text: &str) {
     let t = wide(text);
     unsafe {
         let _ = SetWindowTextW(h, PCWSTR(t.as_ptr()));
     }
 }
 
-fn text_of(h: HWND) -> String {
+pub fn text_of(h: HWND) -> String {
     let len = unsafe { GetWindowTextLengthW(h) };
     if len <= 0 {
         return String::new();
@@ -401,12 +401,12 @@ fn text_of(h: HWND) -> String {
     String::from_utf16_lossy(&buf[..got.max(0) as usize])
 }
 
-fn send(h: HWND, msg: u32, w: usize, l: isize) -> isize {
+pub fn send(h: HWND, msg: u32, w: usize, l: isize) -> isize {
     unsafe { SendMessageW(h, msg, Some(WPARAM(w)), Some(LPARAM(l))).0 }
 }
 
 /// A child control with the given class, text, style and id.
-unsafe fn make(parent: HWND, class: PCWSTR, text: &str, style: WINDOW_STYLE, id: u16) -> HWND {
+pub unsafe fn make(parent: HWND, class: PCWSTR, text: &str, style: WINDOW_STYLE, id: u16) -> HWND {
     let t = wide(text);
     let menu = HMENU(id as usize as *mut core::ffi::c_void);
     unsafe {
@@ -455,7 +455,7 @@ fn list_style() -> WINDOW_STYLE {
 }
 
 /// The system UI font at `dpi`, owned by the caller; null when unavailable.
-fn message_font(dpi: u32) -> HFONT {
+pub fn message_font(dpi: u32) -> HFONT {
     let mut ncm = NONCLIENTMETRICSW {
         cbSize: size_of::<NONCLIENTMETRICSW>() as u32,
         ..Default::default()

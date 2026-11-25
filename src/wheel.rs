@@ -51,6 +51,8 @@ pub enum Action {
     SoundSettings,
     Bluetooth,
     BluetoothSettings,
+    /// The search box.
+    Google,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -101,7 +103,7 @@ pub fn slots(page: Page, c: &Config) -> Vec<Slot> {
             slot("My Apps", '\u{E734}', Open(Page::MyApps)),
             slot("Apps", '\u{E71D}', Open(Page::Apps)),
             slot("Sites", '\u{E774}', Open(Page::Sites)),
-            slot("Google", '\u{E721}', Disabled),
+            slot("Google", '\u{E721}', Do(Google)),
             slot("System", '\u{E770}', Open(Page::System)),
             slot("Settings", '\u{E713}', Do(Settings)),
             slot("Sound", '\u{E767}', Open(Page::Sound)),
@@ -328,6 +330,7 @@ mod tests {
         let sound = slots(Page::Sound, &c);
         assert_eq!(sound[3].target, Target::Do(Action::Bluetooth));
         let root = slots(Page::Root, &c);
+        assert_eq!(root[3].target, Target::Do(Action::Google));
         assert_eq!(root[7].target, Target::Open(Page::Tools));
         c.tools = vec![c.my_apps[0].clone(); 8];
         let tools = slots(Page::Tools, &c);

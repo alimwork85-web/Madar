@@ -28,6 +28,11 @@ The mouse wheel changes the volume by 2% a notch anywhere on the Sound page and 
 Bluetooth: one press turns it on or off and the wheel stays open; presses during the change and for 1 s after it are ignored. The hub shows `On`, `Off`, `Turning on...` or `Turning off...` under its name. With no radio, when refused, or with no change within 5 s, it opens Windows Bluetooth settings.
 Hub text: `Close` at the root, `Back` inside a folder, the slot name while hovering. Labels wrap to two lines, then end with an ellipsis.
 
+## Search box
+Google closes the wheel and opens a box at its place: 420 wide, the label `Search Google`, one field, the button `Search`. Colors from the theme, Windows message font, rounded by Windows.
+The field holds the copied text, selected; text the copying program excludes from others, or longer than 300, is not taken. The clipboard is read once and never changed. The side follows the first letter.
+Enter or Search opens the results in the default browser and closes the box; nothing is sent before and nothing is kept. Esc, a click outside or the shortcut closes it. An error appears under the field and the text stays.
+
 ## Slot states
 | State | Drawing |
 |---|---|

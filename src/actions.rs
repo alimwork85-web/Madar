@@ -104,6 +104,7 @@ fn plan(action: Action, c: &Config) -> Result<Plan, String> {
         // The caller handles these.
         Action::AddItems
         | Action::Bluetooth
+        | Action::Google
         | Action::VolumeUp
         | Action::VolumeDown
         | Action::Mute
@@ -161,6 +162,13 @@ pub fn run(action: Action, c: &Config) -> Result<(), String> {
         Plan::Shell { file, args, dir } => shell(&file, &args, dir.as_deref()),
         Plan::Spawn { exe, arg } => spawn(&exe, &arg),
     }
+}
+
+pub fn open_url(url: &str) -> Result<(), String> {
+    if !is_web_url(url) {
+        return Err("Invalid address".to_string());
+    }
+    shell(url, "", None)
 }
 
 fn wide(s: &str) -> Vec<u16> {
