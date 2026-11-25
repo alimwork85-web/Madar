@@ -794,10 +794,11 @@ impl App {
     }
 
     fn left_up(&mut self, p: POINT) {
+        // Also when the press was dropped because the devices changed.
+        let _ = unsafe { ReleaseCapture() };
         let Some(down) = self.pressed.take() else {
             return;
         };
-        let _ = unsafe { ReleaseCapture() };
         let up = self.hit(p);
         let from_hub = down == Hit::Hub && matches!(up, Hit::Slot(_));
         if up == down || from_hub {
