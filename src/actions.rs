@@ -88,7 +88,7 @@ fn plan(action: Action, c: &Config) -> Result<Plan, String> {
 }
 
 /// Checks an absolute, existing program path. `shortcut` also allows `.lnk`.
-fn program(path: &str, shortcut: bool) -> Result<PathBuf, String> {
+pub fn program(path: &str, shortcut: bool) -> Result<PathBuf, String> {
     if path.is_empty() || path.contains('\0') {
         return Err("Invalid path".to_string());
     }
