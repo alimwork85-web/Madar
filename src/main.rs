@@ -47,6 +47,9 @@ const SUMMON_KEY: i32 = 1;
 const FIRST_WHEEL_KEY: i32 = 100;
 const ANIMATION: usize = 1;
 const MESSAGE: usize = 2;
+/// Reads the sound again while its page shows, so a device that joins appears.
+const DEVICES: usize = 3;
+const DEVICES_MS: u32 = 1000;
 const ANIMATION_MS: f32 = 120.0;
 /// Pointer travel, in logical pixels, that turns a press into a drag.
 const DRAG: f32 = 20.0;
@@ -214,6 +217,7 @@ impl App {
             let _ = ReleaseCapture();
             let _ = KillTimer(Some(self.hwnd), ANIMATION);
             let _ = KillTimer(Some(self.hwnd), MESSAGE);
+            let _ = KillTimer(Some(self.hwnd), DEVICES);
             for (id, _) in (FIRST_WHEEL_KEY..).zip(WHEEL_KEYS) {
                 let _ = UnregisterHotKey(Some(self.hwnd), id);
             }
@@ -237,6 +241,9 @@ impl App {
             }
             self.sound(Order::Read);
             self.show_sound();
+            unsafe { SetTimer(Some(self.hwnd), DEVICES, DEVICES_MS, None) };
+        } else {
+            let _ = unsafe { KillTimer(Some(self.hwnd), DEVICES) };
         }
         self.draw();
     }
@@ -311,7 +318,17 @@ impl App {
         let mut failed = false;
         for answer in answers {
             self.volume = Some(answer.volume);
-            self.devices = answer.devices.unwrap_or(std::mem::take(&mut self.devices));
+            if let Some(devices) = answer.devices
+                && devices != self.devices
+            {
+                self.devices = devices;
+                // A half-made press must not choose what moved under it.
+                if self.page == Page::Sound
+                    && matches!(self.pressed, Some(Hit::Slot(i)) if i >= wheel::FIRST_OUTPUT)
+                {
+                    self.pressed = None;
+                }
+            }
             failed |= answer.failed;
         }
         self.show_sound();
@@ -931,6 +948,12 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
         WM_LBUTTONUP => with_app(|a| a.left_up(client())),
         WM_TIMER => with_app(|a| {
             let running = |s: Instant| s.elapsed().as_secs_f32() * 1000.0 < ANIMATION_MS;
+            if w.0 == DEVICES {
+                if a.visible && a.page == Page::Sound {
+                    a.sound(Order::Read);
+                }
+                return;
+            }
             if w.0 == MESSAGE {
                 a.message = None;
                 let _ = unsafe { KillTimer(Some(hwnd), MESSAGE) };
