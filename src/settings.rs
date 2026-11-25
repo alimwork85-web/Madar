@@ -4,6 +4,8 @@
 //! dialogs, `SendMessageW` to our own controls, `DestroyWindow`, modal loops)
 //! runs with no borrow of the state held: the state is copied out first.
 
+pub mod start_menu;
+
 use crate::actions;
 use crate::config::{self, App, Config, Mouse, Site, THEMES};
 use std::cell::{Cell, RefCell};
@@ -117,6 +119,7 @@ const SITE_BUTTON_TEXT: [&str; 5] = [
     "Move dow&n",
 ];
 const ID_BROWSE: u16 = 300;
+const ID_START: u16 = 301;
 const SUBCLASS: usize = 1;
 
 const ADD: usize = 0;
@@ -1511,6 +1514,8 @@ struct Form {
     field: [HWND; 3],
     error: [HWND; 3],
     browse: HWND,
+    /// Only for apps.
+    start: HWND,
     hint: HWND,
     ok: HWND,
     cancel: HWND,
@@ -1608,9 +1613,10 @@ fn dialog(owner: HWND, list: List, texts: Option<[String; 3]>, editing: bool) ->
                 let vk = msg.wParam.0 as u32;
                 if vk == VK_RETURN.0 as u32 {
                     // Enter on a focused button presses that button.
-                    match with_form(|f| (f.browse, f.cancel)) {
-                        Some((browse, _)) if msg.hwnd == browse => form_browse(),
-                        Some((_, cancel)) if msg.hwnd == cancel => {
+                    match with_form(|f| (f.browse, f.start, f.cancel)) {
+                        Some((browse, ..)) if msg.hwnd == browse => form_browse(),
+                        Some((_, start, _)) if msg.hwnd == start => form_start(),
+                        Some((.., cancel)) if msg.hwnd == cancel => {
                             with_form(|f| f.done = true);
                         }
                         _ => form_ok(),
@@ -1712,6 +1718,19 @@ fn form_setup(hwnd: HWND) -> bool {
     } else {
         HWND::default()
     };
+    let start = if site {
+        HWND::default()
+    } else {
+        unsafe {
+            make(
+                hwnd,
+                w!("BUTTON"),
+                "&Start menu...",
+                button_style(false),
+                ID_START,
+            )
+        }
+    };
     let ok = unsafe { make(hwnd, w!("BUTTON"), "OK", button_style(true), IDOK.0 as u16) };
     let cancel = unsafe {
         make(
@@ -1732,6 +1751,7 @@ fn form_setup(hwnd: HWND) -> bool {
         field,
         error,
         browse,
+        start,
         hint,
         ok,
         cancel,
@@ -1746,6 +1766,7 @@ fn form_setup(hwnd: HWND) -> bool {
     all.push(browse);
     // Only a site has the hint.
     all.extend(site.then_some(hint));
+    all.extend((!site).then_some(start));
     all.push(ok);
     all.push(cancel);
     if all.iter().any(|h| h.is_invalid()) {
@@ -1809,6 +1830,9 @@ fn form_arrange(f: &Form, width: i32, height: i32) -> Vec<(HWND, i32, i32, i32, 
     let by = (height - g.margin - g.btn_h).max(y);
     let cancel_x = width - g.margin - px(FORM_BTN_W, f.dpi);
     let ok_x = cancel_x - g.gap - px(FORM_BTN_W, f.dpi);
+    if !f.start.is_invalid() {
+        out.push((f.start, g.margin, by, px(110, f.dpi), g.btn_h));
+    }
     out.push((f.ok, ok_x, by, px(FORM_BTN_W, f.dpi), g.btn_h));
     out.push((f.cancel, cancel_x, by, px(FORM_BTN_W, f.dpi), g.btn_h));
     out
@@ -1911,6 +1935,20 @@ fn form_browse() {
     }
 }
 
+fn form_start() {
+    let Some((hwnd, fields)) = with_form(|f| (f.hwnd, f.field)) else {
+        return;
+    };
+    let Some(entry) = start_menu::pick(hwnd) else {
+        return;
+    };
+    set_text(fields[1], &entry.path);
+    if text_of(fields[0]).trim().is_empty() {
+        let name: String = entry.name.chars().take(NAME_MAX).collect();
+        set_text(fields[0], &name);
+    }
+}
+
 fn pick_file(owner: HWND, list: List) -> Option<String> {
     let filter: Vec<u16> = match list {
         List::Apps => "Programs\0*.exe;*.lnk\0\0",
@@ -1953,6 +1991,8 @@ fn form_command(id: u16, code: u16) {
         with_form(|f| f.done = true);
     } else if id == ID_BROWSE && code == BN_CLICKED as u16 {
         form_browse();
+    } else if id == ID_START && code == BN_CLICKED as u16 {
+        form_start();
     }
 }
 
@@ -2005,7 +2045,7 @@ unsafe extern "system" fn form_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                         f.field,
                         f.label,
                         f.error,
-                        [f.browse, f.ok, f.cancel, f.hint],
+                        [f.browse, f.start, f.ok, f.cancel, f.hint],
                     )
                 }) {
                     for h in fields

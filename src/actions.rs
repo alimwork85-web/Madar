@@ -21,6 +21,8 @@ use windows::core::{HRESULT, PCWSTR};
 
 /// The shell folder behind the Run dialog.
 const RUN: &str = "shell:::{2559a1f3-21d7-11d4-bdaf-00c04f60b9f0}";
+/// The folder behind the Start menu's list; an app id follows.
+pub const START_APPS: &str = "shell:AppsFolder\\";
 const SETTINGS: &str = "ms-settings:";
 
 #[derive(Debug, PartialEq)]
@@ -87,10 +89,21 @@ fn plan(action: Action, c: &Config) -> Result<Plan, String> {
     }
 }
 
-/// Checks an absolute, existing program path. `shortcut` also allows `.lnk`.
+/// True for a Start menu program. Windows checks that it exists on launch.
+pub fn is_start_app(path: &str) -> bool {
+    (path.strip_prefix(START_APPS)).is_some_and(|id| {
+        !id.trim().is_empty() && !id.contains(char::is_control) && !id.contains("..")
+    })
+}
+
+/// Checks an absolute, existing program path. `shortcut` also allows `.lnk`
+/// and Start menu programs, which have no folder: their path comes back empty.
 pub fn program(path: &str, shortcut: bool) -> Result<PathBuf, String> {
     if path.is_empty() || path.contains('\0') {
         return Err("Invalid path".to_string());
+    }
+    if shortcut && is_start_app(path) {
+        return Ok(PathBuf::new());
     }
     let p = Path::new(path);
     if !p.is_absolute() {
@@ -283,6 +296,28 @@ mod tests {
             }
         );
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn start_menu_apps() {
+        let path = "shell:AppsFolder\\Some.App_x!App";
+        let c = config(vec![app(path, "")], vec![site("https://a.b", None)]);
+        assert_eq!(
+            plan(Action::App(0), &c).unwrap(),
+            Plan::Shell {
+                file: path.to_string(),
+                args: String::new(),
+                dir: None,
+            }
+        );
+        assert!(program(path, false).is_err());
+        for bad in [
+            "shell:AppsFolder\\",
+            "shell:Other\\x",
+            "shell:AppsFolder\\..\\x",
+        ] {
+            assert!(program(bad, true).is_err(), "{bad}");
+        }
     }
 
     #[test]

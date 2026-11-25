@@ -787,7 +787,13 @@ fn start(config: Config, unreadable: bool) -> windows::core::Result<()> {
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    if args.next().as_deref() == Some(icons::CHILD) {
+    let first = args.next();
+    if first.as_deref() == Some(settings::start_menu::CHILD) {
+        // An empty answer tells the parent that the list could not be read.
+        let _ = settings::start_menu::child();
+        return;
+    }
+    if first.as_deref() == Some(icons::CHILD) {
         let side = args.next().and_then(|s| s.parse().ok());
         if let Some(side) = side.filter(|s| (1..=icons::MAX_SIDE).contains(s)) {
             // The parent may be gone; nobody is left to tell.
