@@ -1,7 +1,8 @@
 //! What the Google slot opens: results for the copied text, or Google itself.
 
+use std::sync::Mutex;
 use std::sync::mpsc::channel;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use windows::Win32::Foundation::HGLOBAL;
 use windows::Win32::System::DataExchange::*;
 use windows::Win32::System::Memory::*;
@@ -14,10 +15,30 @@ const MAX_TEXT: usize = 300;
 const MAX_URL: usize = 2000;
 /// A program that is slow to hand over its copied text is not waited for.
 const CLIPBOARD_TIME: Duration = Duration::from_millis(500);
+/// Text copied longer ago is forgotten, so it is not searched for.
+const MAX_AGE: Duration = Duration::from_secs(120);
 const CF_UNICODETEXT: u32 = 13;
+
+/// None until something is copied while the program runs.
+static COPIED: Mutex<Option<Instant>> = Mutex::new(None);
+
+/// The clipboard changed just now.
+pub fn copied() {
+    if let Ok(mut at) = COPIED.lock() {
+        *at = Some(Instant::now());
+    }
+}
+
+fn recent(copied: Option<Instant>, now: Instant) -> bool {
+    copied.is_some_and(|t| now.duration_since(t) <= MAX_AGE)
+}
 
 /// Reads the clipboard once. May wait, so not for the wheel's thread.
 pub fn address() -> String {
+    let at = COPIED.lock().ok().and_then(|at| *at);
+    if !recent(at, Instant::now()) {
+        return HOME.to_string();
+    }
     let (tx, rx) = channel();
     std::thread::spawn(move || tx.send(clipboard().unwrap_or_default()));
     target(&rx.recv_timeout(CLIPBOARD_TIME).unwrap_or_default())
@@ -141,6 +162,14 @@ mod tests {
             assert_eq!(target(text), HOME);
         }
         assert!(target(&"a".repeat(MAX_TEXT)).contains("?q="));
+    }
+
+    #[test]
+    fn age() {
+        let t = Instant::now();
+        assert!(!recent(None, t));
+        assert!(recent(Some(t), t + MAX_AGE));
+        assert!(!recent(Some(t), t + MAX_AGE + Duration::from_secs(1)));
     }
 
     #[test]

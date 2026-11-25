@@ -27,6 +27,7 @@ use wheel::paint::{Painter, Scene, palette};
 use wheel::{Action, Hit, Page, Slot, Target};
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
+use windows::Win32::System::DataExchange::AddClipboardFormatListener;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::Controls::WM_MOUSELEAVE;
@@ -949,6 +950,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
         bluetooth::WM_RADIO => with_app(App::radio_answered),
         audio::WM_AUDIO => with_app(App::sound_answered),
         icons::WM_ICON => with_app(App::icon_loaded),
+        WM_CLIPBOARDUPDATE => {
+            search::copied();
+            Some(())
+        }
         WM_DISPLAYCHANGE => with_app(App::close),
         WM_DESTROY => {
             settings::close();
@@ -1032,6 +1037,8 @@ fn start(config: Config, unreadable: bool) -> windows::core::Result<()> {
         radio_state: None,
         radio_lock: None,
     };
+    // Without it copied text counts as old. Windows removes it with the window.
+    let _ = unsafe { AddClipboardFormatListener(hwnd) };
     // Draws once while hidden, so the first real frame is fast.
     app.go(Page::Root);
     // At sign-in the taskbar may not exist yet; its broadcast adds the icon then.
