@@ -3,8 +3,8 @@
 Status: approved 2026-11-25. Interface language is English, digits are 0-9.
 
 ## Purpose and feel
-A tool opened many times a day for under two seconds. Precise and quiet: one wheel, seven fixed places, no decoration.
-Signature: the seven-slot wheel and the seven-slot app icon are the same shape.
+A tool opened many times a day for under two seconds. Precise and quiet: one wheel, eight fixed places, no decoration.
+Signature: the eight-slot wheel and the eight-slot app icon are the same shape.
 
 ## App icon
 `assets/madar.svg`, `assets/madar.ico`, drawn by `tools/make_icon.py`. Colors never follow the theme.
@@ -20,7 +20,9 @@ Signature: the seven-slot wheel and the seven-slot app icon are the same shape.
 | Label / digit | 13 / 12, Segoe UI Variable Text, regular |
 | First slot | centered at 12 o'clock, then clockwise |
 
-Order: System, Settings, Sound, Bluetooth, Apps, Sites, Google. A folder replaces the slots in place. Every folder shows at least 7 places, at most 8.
+Order: My Apps, Apps, Sites, Google, System, Settings, Sound, Bluetooth. A folder replaces the slots in place. Every page shows 8 places.
+My Apps holds the programs the user made, Apps all others; one program can move between them.
+With Show names off, every slot shows its icon alone, 32 and centered, without digit and label. The digits still work and the hub still names the slot.
 Hub text: `Close` at the root, `Back` inside a folder, the slot name while hovering. Labels wrap to two lines, then end with an ellipsis.
 
 ## Slot states
@@ -30,7 +32,7 @@ Hub text: `Close` at the root, `Back` inside a folder, the slot name while hover
 | Hover or keyboard focus | accent color, on-accent text. No motion |
 | Pressed | accent color, 2 px inner outline in on-accent |
 | Disabled | hub color, text at 60%, label `Not ready` in the hub on hover |
-| First free place in Apps or Sites | `Add app` or `Add site`, opens Settings |
+| First free place in My Apps, Apps or Sites | `Add app` or `Add site`, opens Settings at that list |
 | Other free places | slot color at 35% over the plate, no text, no hover, skipped by the keyboard |
 | Error | message in the hub for 4 s, wheel stays open |
 
@@ -55,7 +57,7 @@ Keyboard: none. Mouse: opacity and 0.96 to 1 scale over 120 ms, ease-out. Closin
 
 ## Settings window
 Native controls, 480 x 560, resizable, Windows light or dark title bar. One column, labels left, controls right, 16 px margin, 36 px rows.
-Order: Shortcut, Mouse button, Theme, Start with Windows, Apps list, Sites list. Lists have Add, Edit, Remove, Move up, Move down.
+Order: Shortcut, Mouse button, Theme, Start with Windows, Show names, then a switch (My Apps, Apps, Sites) over one list. Buttons: Add, Add from Start, Edit, Remove, Move up, Move down, Move to Apps or Move to My Apps.
 Changes save at once. An error appears under its control. Every control is reachable with Tab and has an access key.
 
 ## Tray menu

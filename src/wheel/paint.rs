@@ -395,7 +395,8 @@ impl Painter {
         let a = std::f32::consts::TAU * i as f32 / n as f32;
         let (x, y) = (ICON_R * a.sin(), -ICON_R * a.cos());
         let width: f32 = match n {
-            8 => 72.0,
+            // Slots at the sides leave more room across than those at the top.
+            8 => 72.0 + 14.0 * a.sin().abs(),
             7 => 84.0,
             _ => 92.0,
         };
