@@ -5,6 +5,7 @@
 //! runs with no borrow of the state held: the state is copied out first.
 
 pub mod browse;
+mod look;
 pub mod start_menu;
 
 use crate::actions;
@@ -16,10 +17,6 @@ use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute};
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::System::Registry::{
-    HKEY_CURRENT_USER, REG_VALUE_TYPE, RRF_RT_REG_DWORD, RegGetValueW,
-};
-use windows::Win32::UI::Accessibility::{HCF_HIGHCONTRASTON, HIGHCONTRASTW};
 use windows::Win32::UI::Controls::{BST_CHECKED, BST_UNCHECKED, EM_SETLIMITTEXT};
 use windows::Win32::UI::HiDpi::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
@@ -448,11 +445,13 @@ fn button_style(default: bool) -> WINDOW_STYLE {
 }
 
 fn combo_style() -> WINDOW_STYLE {
-    WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | WINDOW_STYLE(CBS_DROPDOWNLIST as u32)
+    let own = CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS;
+    WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | WINDOW_STYLE(own as u32)
 }
 
 fn list_style() -> WINDOW_STYLE {
-    WS_CHILD | WS_VISIBLE | WS_BORDER | WS_VSCROLL | WS_TABSTOP | WINDOW_STYLE(LBS_NOTIFY as u32)
+    let own = LBS_NOTIFY | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS;
+    WS_CHILD | WS_VISIBLE | WS_BORDER | WS_VSCROLL | WS_TABSTOP | WINDOW_STYLE(own as u32)
 }
 
 /// The system UI font at `dpi`, owned by the caller; null when unavailable.
@@ -483,7 +482,7 @@ fn message_font(dpi: u32) -> HFONT {
 fn apply_font(font: HFONT) {
     let Some(w) = with_state(|s| s.w) else { return };
     for h in w.all() {
-        send(h, WM_SETFONT, font.0 as usize, 1);
+        look::font(h, font);
     }
 }
 
@@ -508,55 +507,16 @@ fn set_dpi(dpi: u32) {
     layout();
 }
 
-fn use_dark_title(hwnd: HWND) {
-    if high_contrast() {
-        return;
+/// Every open window, after the colors changed.
+fn recolor() {
+    let open = [
+        with_state(|s| s.hwnd),
+        with_form(|f| f.hwnd),
+        start_menu::window(),
+    ];
+    for hwnd in open.into_iter().flatten() {
+        look::show(hwnd);
     }
-    let dark = i32::from(!apps_use_light());
-    unsafe {
-        let _ = DwmSetWindowAttribute(
-            hwnd,
-            DWMWA_USE_IMMERSIVE_DARK_MODE,
-            (&raw const dark).cast(),
-            size_of::<i32>() as u32,
-        );
-    }
-}
-
-fn high_contrast() -> bool {
-    let mut hc = HIGHCONTRASTW {
-        cbSize: size_of::<HIGHCONTRASTW>() as u32,
-        ..Default::default()
-    };
-    let ok = unsafe {
-        SystemParametersInfoW(
-            SPI_GETHIGHCONTRAST,
-            hc.cbSize,
-            Some((&raw mut hc).cast()),
-            Default::default(),
-        )
-        .is_ok()
-    };
-    ok && hc.dwFlags.contains(HCF_HIGHCONTRASTON)
-}
-
-/// HKCU Personalize `AppsUseLightTheme`; light when unreadable, like Windows.
-fn apps_use_light() -> bool {
-    let mut value: u32 = 1;
-    let mut size = size_of::<u32>() as u32;
-    let mut kind = REG_VALUE_TYPE::default();
-    let result = unsafe {
-        RegGetValueW(
-            HKEY_CURRENT_USER,
-            w!("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"),
-            w!("AppsUseLightTheme"),
-            RRF_RT_REG_DWORD,
-            Some(&mut kind),
-            Some((&raw mut value).cast()),
-            Some(&mut size),
-        )
-    };
-    result == ERROR_SUCCESS && value != 0
 }
 
 fn load_icons() -> (HICON, HICON, bool) {
@@ -648,7 +608,8 @@ fn setup(hwnd: HWND) -> bool {
         let _ = SetWindowSubclass(w.hotkey, Some(hotkey_proc), SUBCLASS, 0);
     }
     apply_font(font);
-    use_dark_title(hwnd);
+    look::set(&(host.get)().theme);
+    look::show(hwnd);
     fill_combos(w);
     refresh(None);
     true
@@ -754,6 +715,9 @@ fn teardown() {
 }
 
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
+    if let Some(done) = look::handle(hwnd, msg, w, l) {
+        return done;
+    }
     match msg {
         WM_CREATE => {
             if !setup(hwnd) {
@@ -789,7 +753,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
             }
             set_dpi(dpi.max(96));
         }
-        WM_SETTINGCHANGE => use_dark_title(hwnd),
+        WM_SETTINGCHANGE if look::reload() => recolor(),
         WM_COMMAND => command(loword(w.0 as u32), hiword(w.0 as u32)),
         WM_CLOSE => unsafe {
             let _ = DestroyWindow(hwnd);
@@ -1073,6 +1037,9 @@ fn refresh(sel: Option<usize>) {
     errors_text();
     update_buttons();
     layout();
+    if look::set(&c.theme) {
+        recolor();
+    }
 }
 
 fn fill(list: HWND, items: impl Iterator<Item = impl AsRef<str>>) {
@@ -1110,6 +1077,9 @@ fn apply(field: Field, sel: Option<usize>, change: impl FnOnce(&mut Config)) {
 pub fn show_theme(index: usize) {
     if let Some(theme) = with_state(|s| s.w.theme) {
         send(theme, CB_SETCURSEL, index, 0);
+        if look::set(THEMES[index]) {
+            recolor();
+        }
     }
 }
 
@@ -1640,7 +1610,7 @@ fn dialog(owner: HWND, list: List, texts: Option<[String; 3]>, editing: bool) ->
             return None;
         };
 
-        use_dark_title(hwnd);
+        look::show(hwnd);
         let _ = EnableWindow(owner, false);
         let _ = ShowWindow(hwnd, SW_SHOW);
         // A new site starts at its address, which gives the name.
@@ -1845,7 +1815,7 @@ fn form_setup(hwnd: HWND) -> bool {
 
     FORM.with(|slot| *slot.borrow_mut() = Some(form));
     for h in all {
-        send(h, WM_SETFONT, font.0 as usize, 1);
+        look::font(h, font);
     }
     for (i, (field, text)) in field.iter().zip(init.texts.iter()).enumerate() {
         let limit = if i == 0 { NAME_MAX } else { TEXT_MAX };
@@ -2057,6 +2027,9 @@ fn form_teardown() {
 }
 
 unsafe extern "system" fn form_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
+    if let Some(done) = look::handle(hwnd, msg, w, l) {
+        return done;
+    }
     match msg {
         WM_CREATE => {
             if !form_setup(hwnd) {
@@ -2103,7 +2076,7 @@ unsafe extern "system" fn form_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                         .chain(errors)
                         .chain(buttons)
                     {
-                        send(h, WM_SETFONT, font.0 as usize, 1);
+                        look::font(h, font);
                     }
                 }
                 if !old.is_invalid() {

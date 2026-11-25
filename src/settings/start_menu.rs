@@ -122,6 +122,11 @@ fn matching(entries: &[Entry], text: &str) -> Vec<usize> {
         .collect()
 }
 
+/// The open window.
+pub fn window() -> Option<HWND> {
+    with_picker(|p| p.hwnd)
+}
+
 /// Modal. None when the user cancels.
 pub fn pick(owner: HWND) -> Option<Entry> {
     unsafe {
@@ -176,7 +181,7 @@ pub fn pick(owner: HWND) -> Option<Entry> {
         .ok()?;
         with_picker(|p| p.entries = entries);
         show_matches();
-        use_dark_title(hwnd);
+        look::show(hwnd);
         let _ = EnableWindow(owner, false);
         let _ = ShowWindow(hwnd, SW_SHOW);
         if let Some(search) = with_picker(|p| p.search) {
@@ -310,7 +315,7 @@ fn create(hwnd: HWND) -> bool {
     let complete = all.iter().all(|h| !h.is_invalid());
     PICKER.with(|slot| *slot.borrow_mut() = Some(p));
     for h in all {
-        send(h, WM_SETFONT, font.0 as usize, 1);
+        look::font(h, font);
     }
     send(search, EM_SETLIMITTEXT, NAME_MAX, 0);
     // A failed create ends in WM_NCDESTROY, which frees the rest.
@@ -354,7 +359,7 @@ fn change_dpi(dpi: u32) {
     });
     let all = with_picker(|p| [p.label, p.search, p.list, p.note, p.ok, p.cancel]);
     for h in all.into_iter().flatten() {
-        send(h, WM_SETFONT, font.0 as usize, 1);
+        look::font(h, font);
     }
     if let Some(old) = old.filter(|f| !f.is_invalid()) {
         let _ = unsafe { DeleteObject(old.into()) };
@@ -363,6 +368,9 @@ fn change_dpi(dpi: u32) {
 }
 
 unsafe extern "system" fn picker_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
+    if let Some(done) = look::handle(hwnd, msg, w, l) {
+        return done;
+    }
     match msg {
         WM_CREATE if !create(hwnd) => return LRESULT(-1),
         WM_SIZE => arrange(),

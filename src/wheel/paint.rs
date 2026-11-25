@@ -84,7 +84,7 @@ impl Palette {
     }
 }
 
-fn mix(a: u32, b: u32, t: f32) -> u32 {
+pub fn mix(a: u32, b: u32, t: f32) -> u32 {
     let ch = |s: u32| {
         let (a, b) = ((a >> s & 255) as f32, (b >> s & 255) as f32);
         ((a * t + b * (1.0 - t)).round() as u32) << s
