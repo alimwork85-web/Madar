@@ -23,6 +23,8 @@ Signature: the eight-slot wheel and the eight-slot app icon are the same shape.
 Order: My Apps, Apps, Sites, Google, System, Settings, Sound, Bluetooth. A folder replaces the slots in place. Every page shows 8 places.
 My Apps holds the programs the user made, Apps all others; one program can move between them.
 With Show names off, every slot shows its icon alone, 32 and centered, without digit and label. The digits still work and the hub still names the slot.
+Sound: Volume up, Mute (Unmute when muted), Volume down, then the output devices by name, the current one with a check mark. With more than 5 devices: 4, the current one among them, then `More`, which opens Windows sound settings. Changing the volume or the device keeps the wheel open. The calls device is never changed.
+The mouse wheel changes the volume by 2% a notch anywhere on the Sound page and over the Sound slot of the first page; raising it unmutes. On the Sound page Up and Down change the volume; Left, Right and Tab move. The hub shows `40%` or `Muted` under the slot's name, the full name of a device, or `No output device`.
 Hub text: `Close` at the root, `Back` inside a folder, the slot name while hovering. Labels wrap to two lines, then end with an ellipsis.
 
 ## Slot states

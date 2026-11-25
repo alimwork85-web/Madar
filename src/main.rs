@@ -1,6 +1,7 @@
 #![windows_subsystem = "windows"]
 
 mod actions;
+mod audio;
 mod autostart;
 mod config;
 mod icons;
@@ -9,6 +10,7 @@ mod tray;
 mod trigger;
 mod wheel;
 
+use audio::{Audio, Order, Volume};
 use config::{Config, Mouse};
 use settings::{Field, Problem};
 use std::cell::RefCell;
@@ -94,6 +96,12 @@ struct App {
     animation: Option<Instant>,
     /// Result of the action running on a worker thread.
     running: Option<Receiver<Result<(), String>>>,
+    /// Open while the wheel uses the sound.
+    audio: Option<Audio>,
+    /// The last answer; cleared when the wheel closes.
+    volume: Option<Result<Volume, String>>,
+    /// Scrolling not yet worth one percent.
+    scroll_rest: i32,
 }
 
 thread_local! {
@@ -178,6 +186,9 @@ impl App {
         self.visible = false;
         // A result that arrives after closing belongs to nobody.
         self.running = None;
+        self.audio = None;
+        self.volume = None;
+        self.scroll_rest = 0;
         self.animation = None;
         self.pressed = None;
         self.summon = None;
@@ -202,7 +213,74 @@ impl App {
             self.icons.request(&self.config, self.scale);
             self.show_icons();
         }
+        if page == Page::Sound {
+            self.sound(Order::Read);
+            self.show_volume();
+        }
         self.draw();
+    }
+
+    fn sound(&mut self, order: Order) {
+        let hwnd = self.hwnd;
+        self.audio
+            .get_or_insert_with(|| Audio::new(hwnd))
+            .send(order);
+    }
+
+    fn sound_answered(&mut self) {
+        let Some(answer) = self.audio.as_ref().and_then(Audio::answer) else {
+            return;
+        };
+        self.volume = Some(answer);
+        self.show_volume();
+        self.draw();
+    }
+
+    fn show_volume(&mut self) {
+        let muted = matches!(self.volume, Some(Ok(v)) if v.muted);
+        for slot in &mut self.slots {
+            if slot.target == Target::Do(Action::Mute) {
+                let (label, icon) = if muted {
+                    ("Unmute", '\u{E767}')
+                } else {
+                    ("Mute", '\u{E74F}')
+                };
+                (slot.label, slot.icon) = (label.to_string(), icon);
+            }
+        }
+    }
+
+    fn on_sound_slot(&self) -> bool {
+        let slot = self.hot.and_then(|i| self.slots.get(i));
+        slot.is_some_and(|s| s.target == Target::Open(Page::Sound))
+    }
+
+    fn scroll(&mut self, delta: i32) {
+        if !self.visible || !(self.page == Page::Sound || self.on_sound_slot()) {
+            return;
+        }
+        let by = audio::scrolled(&mut self.scroll_rest, delta);
+        if by != 0 {
+            self.sound(Order::Change(by));
+        }
+    }
+
+    /// What the hub says about the sound, after the name of the hot slot.
+    fn volume_text(&self) -> Option<String> {
+        let on_page = self.page == Page::Sound && !self.hub_hot;
+        if !on_page && !self.on_sound_slot() {
+            return None;
+        }
+        let value = match self.volume.as_ref()? {
+            Ok(v) if v.muted => "Muted".to_string(),
+            Ok(v) => format!("{}%", v.percent),
+            Err(e) => e.clone(),
+        };
+        let slot = self.hot.and_then(|i| self.slots.get(i));
+        Some(match slot {
+            Some(s) => format!("{}\n{value}", s.label),
+            None => value,
+        })
     }
 
     fn show_icons(&mut self) {
@@ -228,8 +306,10 @@ impl App {
 
     fn draw(&mut self) {
         let hot_slot = self.hot.and_then(|i| self.slots.get(i));
+        let volume = self.volume_text();
         let hub = match (&self.message, hot_slot) {
             (Some(m), _) => m.as_str(),
+            _ if volume.is_some() => volume.as_deref().unwrap_or_default(),
             (None, Some(s)) if s.target == Target::Disabled => "Not ready",
             (None, Some(s)) => s.label.as_str(),
             (None, None) if self.page == Page::Root => "Close",
@@ -364,6 +444,9 @@ impl App {
                     PostMessageW(Some(self.hwnd), WM_OPEN_SETTINGS, WPARAM(list), LPARAM(0))
                 };
             }
+            Target::Do(Action::VolumeUp) => self.sound(Order::Change(audio::STEP)),
+            Target::Do(Action::VolumeDown) => self.sound(Order::Change(-audio::STEP)),
+            Target::Do(Action::Mute) => self.sound(Order::ToggleMute),
             Target::Do(action) => self.launch(action),
         }
     }
@@ -429,6 +512,8 @@ impl App {
                 Some(i) => self.choose(i),
                 None => self.back(),
             },
+            VK_UP if self.page == Page::Sound => self.sound(Order::Change(audio::STEP)),
+            VK_DOWN if self.page == Page::Sound => self.sound(Order::Change(-audio::STEP)),
             VK_TAB if mods == MOD_SHIFT => self.step(-1),
             VK_TAB | VK_RIGHT | VK_DOWN => self.step(1),
             VK_LEFT | VK_UP => self.step(-1),
@@ -705,6 +790,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
                 a.set_hot(Hit::Outside);
             }
         }),
+        WM_MOUSEWHEEL => with_app(|a| a.scroll((w.0 >> 16) as i16 as i32)),
         WM_LBUTTONDOWN => with_app(|a| {
             a.pressed = Some(a.hit(client()));
             unsafe { SetCapture(hwnd) };
@@ -729,6 +815,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
             Some(())
         }
         WM_ACTION_DONE => with_app(App::launched),
+        audio::WM_AUDIO => with_app(App::sound_answered),
         icons::WM_ICON => with_app(App::icon_loaded),
         WM_DISPLAYCHANGE => with_app(App::close),
         WM_DESTROY => {
@@ -803,6 +890,9 @@ fn start(config: Config, unreadable: bool) -> windows::core::Result<()> {
         message: None,
         animation: None,
         running: None,
+        audio: None,
+        volume: None,
+        scroll_rest: 0,
     };
     // Draws once while hidden, so the first real frame is fast.
     app.go(Page::Root);

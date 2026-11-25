@@ -25,6 +25,7 @@ pub enum Page {
     MyApps,
     Apps,
     Sites,
+    Sound,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -37,6 +38,9 @@ pub enum Action {
     Site(usize),
     /// The first free place of a folder.
     AddItems,
+    VolumeUp,
+    VolumeDown,
+    Mute,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -90,7 +94,7 @@ pub fn slots(page: Page, c: &Config) -> Vec<Slot> {
             slot("Google", '\u{E721}', Disabled),
             slot("System", '\u{E770}', Open(Page::System)),
             slot("Settings", '\u{E713}', Do(Settings)),
-            slot("Sound", '\u{E767}', Disabled),
+            slot("Sound", '\u{E767}', Open(Page::Sound)),
             slot("Bluetooth", '\u{E702}', Disabled),
         ],
         Page::System => fill(vec![
@@ -116,6 +120,11 @@ pub fn slots(page: Page, c: &Config) -> Vec<Slot> {
                 .collect(),
             "Add site",
         ),
+        Page::Sound => fill(vec![
+            slot("Volume up", '\u{E995}', Do(VolumeUp)),
+            slot("Mute", '\u{E74F}', Do(Mute)),
+            slot("Volume down", '\u{E993}', Do(VolumeDown)),
+        ]),
     }
 }
 
@@ -222,6 +231,7 @@ mod tests {
         let mut c = Config::default();
         assert_eq!(slots(Page::Root, &c).len(), 8);
         assert_eq!(slots(Page::System, &c).len(), 8);
+        assert_eq!(slots(Page::Sound, &c).len(), 8);
         assert_eq!(
             slots(Page::Apps, &c)[0].target,
             Target::Do(Action::AddItems)

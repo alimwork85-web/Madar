@@ -86,8 +86,10 @@ fn plan(action: Action, c: &Config) -> Result<Plan, String> {
                 }),
             }
         }
-        // The empty folder's slot is handled by the caller.
-        Action::AddItems => Err("Not ready".to_string()),
+        // The caller handles these.
+        Action::AddItems | Action::VolumeUp | Action::VolumeDown | Action::Mute => {
+            Err("Not ready".to_string())
+        }
     }
 }
 
