@@ -51,7 +51,6 @@ pub enum Action {
     SoundSettings,
     Bluetooth,
     BluetoothSettings,
-    /// The search box.
     Google,
 }
 

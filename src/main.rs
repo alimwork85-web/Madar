@@ -41,8 +41,6 @@ const WM_SHOW_WHEEL: u32 = WM_APP + 10;
 const WM_ACTION_DONE: u32 = WM_APP + 11;
 /// Opens the settings window once the app is no longer borrowed.
 const WM_OPEN_SETTINGS: u32 = WM_APP + 12;
-/// Opens the search box, for the same reason.
-const WM_OPEN_SEARCH: u32 = WM_APP + 16;
 const SUMMON_KEY: i32 = 1;
 const FIRST_WHEEL_KEY: i32 = 100;
 const ANIMATION: usize = 1;
@@ -148,7 +146,6 @@ fn animations_on() -> bool {
 
 impl App {
     fn open(&mut self, animate: bool) {
-        search::close();
         let p = cursor();
         let (mut dpi, mut unused) = (96, 0);
         let mut info = MONITORINFO {
@@ -545,11 +542,6 @@ impl App {
                     PostMessageW(Some(self.hwnd), WM_OPEN_SETTINGS, WPARAM(list), LPARAM(0))
                 };
             }
-            Target::Do(Action::Google) => {
-                self.close();
-                let _ =
-                    unsafe { PostMessageW(Some(self.hwnd), WM_OPEN_SEARCH, WPARAM(0), LPARAM(0)) };
-            }
             Target::Do(Action::Bluetooth) => {
                 // The hub shows the state, also when a digit was pressed.
                 self.hot = Some(i);
@@ -930,15 +922,6 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
                 a.draw();
             }
         }),
-        WM_OPEN_SEARCH => {
-            let place = with_app(|a| (a.center, palette(&a.config.theme)));
-            if let Some((center, palette)) = place
-                && let Err(e) = search::open(center, palette)
-            {
-                warn(&format!("The search box could not open: {e}"));
-            }
-            None
-        }
         WM_OPEN_SETTINGS => {
             open_settings(w.0);
             Some(())
@@ -1094,7 +1077,7 @@ fn main() {
     unsafe {
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).0 > 0 {
-            if !search::translate(&msg) && !settings::translate(&msg) {
+            if !settings::translate(&msg) {
                 let _ = TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }

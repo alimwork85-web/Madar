@@ -5,6 +5,7 @@
 //! started with exactly one argument.
 
 use crate::config::{Config, is_web_url};
+use crate::search;
 use crate::wheel::Action;
 use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
@@ -91,6 +92,11 @@ fn plan(action: Action, c: &Config) -> Result<Plan, String> {
                 }),
             }
         }
+        Action::Google => Ok(Shell {
+            file: search::address(),
+            args: String::new(),
+            dir: None,
+        }),
         Action::BluetoothSettings => Ok(Shell {
             file: BLUETOOTH_SETTINGS.to_string(),
             args: String::new(),
@@ -104,7 +110,6 @@ fn plan(action: Action, c: &Config) -> Result<Plan, String> {
         // The caller handles these.
         Action::AddItems
         | Action::Bluetooth
-        | Action::Google
         | Action::VolumeUp
         | Action::VolumeDown
         | Action::Mute
@@ -162,13 +167,6 @@ pub fn run(action: Action, c: &Config) -> Result<(), String> {
         Plan::Shell { file, args, dir } => shell(&file, &args, dir.as_deref()),
         Plan::Spawn { exe, arg } => spawn(&exe, &arg),
     }
-}
-
-pub fn open_url(url: &str) -> Result<(), String> {
-    if !is_web_url(url) {
-        return Err("Invalid address".to_string());
-    }
-    shell(url, "", None)
 }
 
 fn wide(s: &str) -> Vec<u16> {

@@ -26,12 +26,8 @@ With Show names off, every slot shows its icon alone, 32 and centered, without d
 Sound: Volume up, Mute (Unmute when muted), Volume down, Bluetooth, then the output devices by name, the current one with a check mark. With more than 4 devices: 3, the current one among them, then `More`, which opens Windows sound settings. Changing the volume or the device keeps the wheel open. The calls device is never changed.
 The mouse wheel changes the volume by 2% a notch anywhere on the Sound page and over the Sound slot of the first page; raising it unmutes. On the Sound page Up and Down change the volume; Left, Right and Tab move. The hub shows `40%` or `Muted` under the slot's name, the full name of a device, or `No output device`.
 Bluetooth: one press turns it on or off and the wheel stays open; presses during the change and for 1 s after it are ignored. The hub shows `On`, `Off`, `Turning on...` or `Turning off...` under its name. With no radio, when refused, or with no change within 5 s, it opens Windows Bluetooth settings.
+Google: one press opens the results for the copied text in the default browser, or Google itself when there is none. Text the copying program excludes from others, or longer than 300, counts as none. The clipboard is read once and never changed.
 Hub text: `Close` at the root, `Back` inside a folder, the slot name while hovering. Labels wrap to two lines, then end with an ellipsis.
-
-## Search box
-Google closes the wheel and opens a box at its place: 420 wide, the label `Search Google`, one field, the button `Search`. Colors from the theme, Windows message font, rounded by Windows.
-The field holds the copied text, selected; text the copying program excludes from others, or longer than 300, is not taken. The clipboard is read once and never changed. The side follows the first letter.
-Enter or Search opens the results in the default browser and closes the box; nothing is sent before and nothing is kept. Esc, a click outside or the shortcut closes it. An error appears under the field and the text stays.
 
 ## Slot states
 | State | Drawing |
