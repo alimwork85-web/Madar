@@ -2,6 +2,7 @@
 
 mod actions;
 mod config;
+mod tray;
 mod trigger;
 mod wheel;
 
@@ -10,6 +11,7 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, channel};
 use std::time::Instant;
+use tray::Tray;
 use trigger::{MouseHook, unpack};
 use wheel::paint::{Painter, Scene, palette};
 use wheel::{Action, Hit, Page, Slot, Target};
@@ -63,6 +65,11 @@ struct App {
     config: Config,
     painter: Painter,
     hook: MouseHook,
+    tray: Tray,
+    /// Message Explorer broadcasts after it restarts.
+    taskbar_created: u32,
+    /// Shortcut and mouse button are off.
+    paused: bool,
     visible: bool,
     center: POINT,
     scale: f32,
@@ -151,7 +158,7 @@ impl App {
         }
         self.visible = true;
         // Without the hook only closing by an outside click is lost.
-        let _ = self.hook.update(self.config.mouse, true);
+        let _ = self.hook.update(self.button(), true);
     }
 
     fn close(&mut self) {
@@ -173,7 +180,7 @@ impl App {
             }
             let _ = ShowWindow(self.hwnd, SW_HIDE);
         }
-        let _ = self.hook.update(self.config.mouse, false);
+        let _ = self.hook.update(self.button(), false);
     }
 
     fn go(&mut self, page: Page) {
@@ -216,6 +223,38 @@ impl App {
         let _ = self
             .painter
             .present(self.hwnd, self.center, self.scale, &scene);
+    }
+
+    /// The summon button in effect.
+    fn button(&self) -> Mouse {
+        if self.paused {
+            Mouse::None
+        } else {
+            self.config.mouse
+        }
+    }
+
+    /// Turns the shortcut and the mouse button on or off. Returns what failed.
+    fn apply_triggers(&mut self) -> Vec<String> {
+        let mut problems = Vec::new();
+        let _ = unsafe { UnregisterHotKey(Some(self.hwnd), SUMMON_KEY) };
+        let register = |(mods, key)| unsafe {
+            RegisterHotKey(Some(self.hwnd), SUMMON_KEY, mods | MOD_NOREPEAT, key).is_ok()
+        };
+        if !self.paused && !trigger::parse_hotkey(&self.config.hotkey).is_some_and(register) {
+            problems.push(format!(
+                "The shortcut {} is invalid or used by another program.",
+                self.config.hotkey
+            ));
+        }
+        problems.extend(self.hook.update(self.button(), self.visible).err());
+        problems
+    }
+
+    fn toggle_pause(&mut self) -> Vec<String> {
+        self.paused = !self.paused;
+        self.tray.set_paused(self.paused);
+        self.apply_triggers()
     }
 
     fn offset(&self, p: POINT) -> (f32, f32) {
@@ -374,7 +413,7 @@ impl App {
             }
         }
         // Lets a hook kept alive by the held button stop when it is not needed.
-        let _ = self.hook.update(self.config.mouse, self.visible);
+        let _ = self.hook.update(self.button(), self.visible);
     }
 
     fn left_up(&mut self, p: POINT) {
@@ -413,6 +452,34 @@ fn warn(text: &str) {
     };
 }
 
+/// The menu runs its own message loop, so the app must not be borrowed here.
+fn tray_menu(hwnd: HWND, at: POINT) {
+    let Some(paused) = with_app(|a| a.paused) else {
+        return;
+    };
+    match tray::menu(hwnd, paused, at) {
+        Some(tray::Command::OpenWheel) => {
+            with_app(|a| a.open(false));
+        }
+        // TODO: the settings window is the next task.
+        Some(tray::Command::Settings) => warn("The settings window is not ready yet."),
+        Some(tray::Command::TogglePause) => {
+            let problems = with_app(App::toggle_pause).unwrap_or_default();
+            if !problems.is_empty() {
+                warn(&problems.join(
+                    "
+
+",
+                ));
+            }
+        }
+        Some(tray::Command::Exit) => {
+            let _ = unsafe { DestroyWindow(hwnd) };
+        }
+        None => {}
+    }
+}
+
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
     let client = || {
         let mut p = POINT {
@@ -430,6 +497,14 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
             id if a.visible => a.key(id),
             _ => {}
         }),
+        tray::WM_TRAY => match tray::event(w, l) {
+            Some(tray::Event::Open) => with_app(|a| a.open(false)),
+            Some(tray::Event::Menu(at)) => {
+                tray_menu(hwnd, at);
+                Some(())
+            }
+            None => Some(()),
+        },
         WM_SHOW_WHEEL => with_app(|a| a.open(false)),
         trigger::WM_SUMMON_DOWN => with_app(|a| a.summon_down(unpack(l))),
         trigger::WM_SUMMON_MOVE => with_app(|a| a.summon_move(unpack(l))),
@@ -482,6 +557,12 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
             unsafe { PostQuitMessage(0) };
             Some(())
         }
+        // Registered messages start at 0xC000.
+        0xC000.. => with_app(|a| {
+            if msg == a.taskbar_created {
+                a.tray.add();
+            }
+        }),
         _ => None,
     };
     match handled {
@@ -518,13 +599,16 @@ fn create_window() -> windows::core::Result<HWND> {
     }
 }
 
-fn start(config: Config) -> windows::core::Result<HWND> {
+fn start(config: Config) -> windows::core::Result<()> {
     let hwnd = create_window()?;
     let mut app = App {
         hwnd,
         config,
         painter: Painter::new()?,
         hook: MouseHook::new(hwnd),
+        tray: Tray::new(hwnd),
+        taskbar_created: tray::taskbar_created(),
+        paused: false,
         visible: false,
         center: POINT::default(),
         scale: 1.0,
@@ -541,8 +625,10 @@ fn start(config: Config) -> windows::core::Result<HWND> {
     };
     // Draws once while hidden, so the first real frame is fast.
     app.go(Page::Root);
+    // At sign-in the taskbar may not exist yet; its broadcast adds the icon then.
+    app.tray.add();
     APP.with(|a| *a.borrow_mut() = Some(app));
-    Ok(hwnd)
+    Ok(())
 }
 
 fn main() {
@@ -564,23 +650,10 @@ fn main() {
         ));
         Config::default()
     });
-    let hotkey = config.hotkey.clone();
-    let mouse: Mouse = config.mouse;
-    let hwnd = match start(config) {
-        Ok(hwnd) => hwnd,
-        Err(e) => return warn(&format!("Madar could not start: {e}")),
-    };
-    let registered = trigger::parse_hotkey(&hotkey).is_some_and(|(mods, key)| unsafe {
-        RegisterHotKey(Some(hwnd), SUMMON_KEY, mods | MOD_NOREPEAT, key).is_ok()
-    });
-    if !registered {
-        problems.push(format!(
-            "The shortcut {hotkey} is invalid or used by another program."
-        ));
+    if let Err(e) = start(config) {
+        return warn(&format!("Madar could not start: {e}"));
     }
-    if let Some(Err(e)) = with_app(|a| a.hook.update(mouse, false)) {
-        problems.push(e);
-    }
+    problems.extend(with_app(App::apply_triggers).unwrap_or_default());
     if !problems.is_empty() {
         warn(&problems.join("\n\n"));
     }

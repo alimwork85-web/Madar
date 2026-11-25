@@ -1,4 +1,4 @@
-//! Puts `assets/madar.ico` into the EXE as icon resource 1, without rc.exe.
+//! Puts the app icon (resource 1) and the manifest into the EXE, without rc.exe.
 
 use std::{env, fs, path::Path};
 
@@ -19,6 +19,7 @@ fn resource(out: &mut Vec<u8>, kind: u16, id: u16, data: &[u8]) {
 
 fn main() {
     println!("cargo:rerun-if-changed=assets/madar.ico");
+    println!("cargo:rerun-if-changed=assets/madar.manifest");
     let ico = fs::read("assets/madar.ico").expect("assets/madar.ico");
     let mut res = Vec::new();
     // Every .res file starts with an empty resource.
@@ -33,6 +34,8 @@ fn main() {
         group.extend(id.to_le_bytes());
     }
     resource(&mut res, 14, 1, &group);
+    let manifest = fs::read("assets/madar.manifest").expect("assets/madar.manifest");
+    resource(&mut res, 24, 1, &manifest);
     let path = Path::new(&env::var("OUT_DIR").unwrap()).join("madar.res");
     fs::write(&path, res).unwrap();
     println!("cargo:rustc-link-arg-bins={}", path.display());
