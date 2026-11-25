@@ -1236,6 +1236,8 @@ fn main() {
         return warn(&format!("Madar could not start: {e}"));
     }
     problems.extend(with_app(App::apply_triggers).unwrap_or_default());
+    // A failed repair shows in Settings, where the box stays off.
+    let _ = autostart::repair();
     if !problems.is_empty() {
         warn(&problems.join("\n\n"));
     }
