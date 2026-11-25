@@ -16,7 +16,7 @@ Signature: the seven-slot wheel and the seven-slot app icon are the same shape.
 | Slot outer / inner radius | 166 / 66 |
 | Gap between slots | 8 at the outer edge, 8 at the inner edge (parallel sides) |
 | Hub diameter | 116 |
-| Icon | 22, Segoe Fluent Icons, at radius 117 |
+| Icon | 22, Segoe Fluent Icons; icon and label centered as one block at radius 117, digit right of the icon |
 | Label / digit | 13 / 12, Segoe UI Variable Text, regular |
 | First slot | centered at 12 o'clock, then clockwise |
 
