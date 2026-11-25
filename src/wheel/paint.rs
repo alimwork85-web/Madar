@@ -314,6 +314,11 @@ impl Painter {
         }
         let n = s.slots.len();
         for (i, slot) in s.slots.iter().enumerate() {
+            if slot.target == Target::Empty {
+                let faint = brush(mix(p.slot, p.plate, 0.35))?;
+                unsafe { rt.FillGeometry(&self.slot_shape(i, n, 0.0)?, &faint, None) };
+                continue;
+            }
             let off = slot.target == Target::Disabled;
             let hot = s.hot == Some(i);
             let (fill, ink) = match (off, hot) {

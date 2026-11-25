@@ -103,6 +103,7 @@ const ID_AUTOSTART: u16 = 103;
 const APP_ID: u16 = 110;
 const SITE_ID: u16 = 120;
 const APP_BUTTONS: u16 = 200;
+const ID_APP_START: u16 = 205;
 const SITE_BUTTONS: u16 = 210;
 const APP_BUTTON_TEXT: [&str; 5] = [
     "&Add app",
@@ -169,6 +170,8 @@ struct Widgets {
     apps: HWND,
     sites: HWND,
     app_btn: [HWND; 5],
+    /// Below Add app.
+    app_start: HWND,
     site_btn: [HWND; 5],
     label: [HWND; 5],
     error: [HWND; 6],
@@ -181,6 +184,7 @@ impl Widgets {
         v.push(self.apps);
         v.push(self.sites);
         v.extend(self.app_btn);
+        v.push(self.app_start);
         v.extend(self.site_btn);
         v.extend(self.label);
         v.extend(self.error);
@@ -605,7 +609,7 @@ fn setup(hwnd: HWND) -> bool {
     let (big, small, owned) = load_icons();
 
     let w = unsafe { build_controls(hwnd) };
-    if w.all().len() != 27 {
+    if w.all().len() != 28 {
         free(w, font, big, small, owned);
         return false;
     }
@@ -700,6 +704,9 @@ unsafe fn build_controls(hwnd: HWND) -> Widgets {
     w.apps = list(APP_ID);
     for (i, text) in APP_BUTTON_TEXT.iter().enumerate() {
         w.app_btn[i] = button(text, APP_BUTTONS + i as u16, false);
+        if i == ADD {
+            w.app_start = button("Add &from Start", ID_APP_START, false);
+        }
     }
     w.error[4] = error(4);
     w.label[4] = label("S&ites");
@@ -832,6 +839,7 @@ fn command(id: u16, code: u16) {
         APP_ID | SITE_ID if code == LBN_SELCHANGE as u16 => update_buttons(),
         APP_ID if code == LBN_DBLCLK as u16 => item(List::Apps, EDIT),
         SITE_ID if code == LBN_DBLCLK as u16 => item(List::Sites, EDIT),
+        ID_APP_START if code == BN_CLICKED as u16 => add_from_start(),
         _ => {
             if code == BN_CLICKED as u16
                 && let Some((list, action)) = button_action(id)
@@ -970,9 +978,13 @@ fn arrange(s: &State, width: i32, height: i32) -> Vec<(HWND, i32, i32, i32, i32)
     y += g.row + if shown { g.err } else { 0 };
 
     let avail = (height - g.margin - y).max(0);
-    let section = avail / 2;
-    for (k, list) in [List::Apps, List::Sites].into_iter().enumerate() {
-        let top = y + k as i32 * section;
+    // Apps has six buttons, so it may need more than half.
+    let apps_h = (avail / 2).max(6 * (g.btn_h + g.gap) + g.gap);
+    for list in [List::Apps, List::Sites] {
+        let (top, section) = match list {
+            List::Apps => (y, apps_h),
+            List::Sites => (y + apps_h, avail - apps_h),
+        };
         let shown = s.errors[list.field().slot()].is_some();
         let list_h = (section - px(8, s.dpi) - if shown { g.err } else { 0 }).max(px(40, s.dpi));
         let bx = width - g.margin - g.btn_w;
@@ -984,8 +996,17 @@ fn arrange(s: &State, width: i32, height: i32) -> Vec<(HWND, i32, i32, i32, i32)
         out.push((label, xl, top, g.label, g.ctl));
         out.push((box_, xc, top, lw, list_h));
         for (i, button) in buttons.into_iter().enumerate() {
-            let by = top + i as i32 * (g.btn_h + g.gap);
+            let row = if list == List::Apps && i > ADD {
+                i + 1
+            } else {
+                i
+            };
+            let by = top + row as i32 * (g.btn_h + g.gap);
             out.push((button, bx, by, g.btn_w, g.btn_h));
+        }
+        if list == List::Apps {
+            let by = top + g.btn_h + g.gap;
+            out.push((s.w.app_start, bx, by, g.btn_w, g.btn_h));
         }
         out.push((
             s.w.error[list.field().slot()],
@@ -1005,6 +1026,7 @@ fn update_buttons() {
     let c = (host.get)();
     let (app_sel, site_sel) = (list_sel(w.apps), list_sel(w.sites));
     set_buttons(w.app_btn, c.apps.len(), app_sel, w.apps);
+    let _ = unsafe { EnableWindow(w.app_start, c.apps.len() < MAX_ITEMS) };
     set_buttons(w.site_btn, c.sites.len(), site_sel, w.sites);
 }
 
@@ -1140,6 +1162,29 @@ fn add(list: List) {
         Made::App(app) => c.apps.push(app),
         Made::Site(site) => c.sites.push(site),
     });
+}
+
+fn add_from_start() {
+    let Some((owner, host, w)) = with_state(|s| (s.hwnd, s.host, s.w)) else {
+        return;
+    };
+    if (host.get)().apps.len() >= MAX_ITEMS {
+        return;
+    }
+    if let Some(entry) = start_menu::pick(owner) {
+        let len = (host.get)().apps.len();
+        let label = entry.name.chars().take(NAME_MAX).collect();
+        apply(Field::Apps, (Some(len), current_sel().1), |c| {
+            c.apps.push(App {
+                label,
+                path: entry.path,
+                args: String::new(),
+            })
+        });
+    }
+    // Back on the button, so several programs can be added in a row.
+    let full = (host.get)().apps.len() >= MAX_ITEMS;
+    let _ = unsafe { SetFocus(Some(if full { w.apps } else { w.app_start })) };
 }
 
 fn edit(list: List) {
@@ -2494,6 +2539,7 @@ mod tests {
         {
             *field = handle(1 + i);
         }
+        w.app_start = handle(15);
         for i in 0..5 {
             w.app_btn[i] = handle(10 + i);
             w.site_btn[i] = handle(20 + i);
@@ -2540,8 +2586,19 @@ mod tests {
         assert_eq!(rect(&plan, handle(4)).1, 124);
         // The lists split what is left.
         assert_eq!(rect(&plan, handle(5)).1, 160);
-        assert_eq!(rect(&plan, handle(5)).3, 184);
-        assert_eq!(rect(&plan, handle(6)).1, 352);
+        assert_eq!(rect(&plan, handle(5)).3, 188);
+        assert_eq!(rect(&plan, handle(6)).1, 356);
+        // Buttons of one list never reach the next list or the window's edge.
+        for errors in [0, 1] {
+            let mut s = dummy_state(Default::default());
+            s.errors[0] = (errors == 1).then(String::new);
+            let plan = arrange(&s, 480, 560);
+            let end = |h| rect(&plan, h).1 + rect(&plan, h).3;
+            assert!(end(handle(14)) < rect(&plan, handle(6)).1);
+            assert_eq!(rect(&plan, handle(15)).1, end(handle(10)) + 4);
+            assert_eq!(rect(&plan, handle(11)).1, end(handle(15)) + 4);
+            assert!(end(handle(24)) <= 560 - 16);
+        }
         // Extra height goes to the lists, extra width to the right column.
         let tall = arrange(&s, 600, 600);
         assert_eq!(rect(&tall, handle(5)).3, 204);
@@ -2550,7 +2607,7 @@ mod tests {
         let with_error = dummy_state([Some("x".to_string()), None, None, None, None, None]);
         let plan = arrange(&with_error, 480, 560);
         assert_eq!(rect(&plan, handle(2)).1, 72);
-        assert_eq!(rect(&plan, handle(5)).3, 174);
+        assert_eq!(rect(&plan, handle(5)).3, 188);
         assert_eq!(rect(&plan, handle(40)).3, 20);
     }
 }

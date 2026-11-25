@@ -7,6 +7,9 @@ use crate::icons::Icon;
 use std::rc::Rc;
 use windows::Win32::Foundation::{POINT, RECT};
 
+/// Places of every wheel; a full folder has one more.
+const PLACES: usize = 7;
+
 // Logical pixels, from DESIGN.md.
 pub const PLATE_R: f32 = 170.0;
 pub const OUTER_R: f32 = 166.0;
@@ -30,7 +33,7 @@ pub enum Action {
     Settings,
     App(usize),
     Site(usize),
-    /// The slot of an empty folder.
+    /// The first free place of a folder.
     AddItems,
 }
 
@@ -39,6 +42,8 @@ pub enum Target {
     Open(Page),
     Do(Action),
     Disabled,
+    /// A free place: keeps the wheel whole and does nothing.
+    Empty,
 }
 
 #[derive(Clone, Debug)]
@@ -63,7 +68,15 @@ fn slot(label: &str, icon: char, target: Target) -> Slot {
 pub fn slots(page: Page, c: &Config) -> Vec<Slot> {
     use Action::*;
     use Target::*;
-    let add = || vec![slot("Add in Settings", '\u{E710}', Do(AddItems))];
+    let folder = |mut items: Vec<Slot>, add: &str| {
+        if items.len() <= PLACES {
+            items.push(slot(add, '\u{E710}', Do(AddItems)));
+        }
+        while items.len() < PLACES {
+            items.push(slot("", ' ', Empty));
+        }
+        items
+    };
     match page {
         Page::Root => vec![
             slot("System", '\u{E770}', Open(Page::System)),
@@ -79,14 +92,18 @@ pub fn slots(page: Page, c: &Config) -> Vec<Slot> {
             slot("Task Manager", '\u{E9D9}', Do(TaskManager)),
             slot("Maintenance", '\u{E90F}', Disabled),
         ],
-        Page::Apps if c.apps.is_empty() => add(),
-        Page::Apps => (c.apps.iter().enumerate())
-            .map(|(i, a)| slot(&a.label, '\u{ECAA}', Do(App(i))))
-            .collect(),
-        Page::Sites if c.sites.is_empty() => add(),
-        Page::Sites => (c.sites.iter().enumerate())
-            .map(|(i, s)| slot(&s.label, '\u{E774}', Do(Site(i))))
-            .collect(),
+        Page::Apps => folder(
+            (c.apps.iter().enumerate())
+                .map(|(i, a)| slot(&a.label, '\u{ECAA}', Do(App(i))))
+                .collect(),
+            "Add app",
+        ),
+        Page::Sites => folder(
+            (c.sites.iter().enumerate())
+                .map(|(i, s)| slot(&s.label, '\u{E774}', Do(Site(i))))
+                .collect(),
+            "Add site",
+        ),
     }
 }
 
@@ -202,7 +219,18 @@ mod tests {
             browser: None,
         });
         let sites = slots(Page::Sites, &c);
-        assert_eq!(sites.len(), 1);
-        assert_eq!(sites[0].target, Target::Do(Action::Site(0)));
+        let targets: Vec<_> = sites.iter().map(|s| s.target).collect();
+        let mut expected = [Target::Empty; 7];
+        expected[0] = Target::Do(Action::Site(0));
+        expected[1] = Target::Do(Action::AddItems);
+        assert_eq!(targets, expected);
+        for (items, places, can_add) in [(6, 7, true), (7, 8, true), (8, 8, false)] {
+            c.sites = vec![c.sites[0].clone(); items];
+            let all = slots(Page::Sites, &c);
+            assert_eq!(all.len(), places);
+            let add = Target::Do(Action::AddItems);
+            assert_eq!(all.iter().any(|s| s.target == add), can_add);
+            assert!(all.iter().all(|s| s.target != Target::Empty));
+        }
     }
 }

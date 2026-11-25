@@ -303,9 +303,13 @@ impl App {
         wheel::hit(dx, dy, self.slots.len())
     }
 
+    fn is_empty(&self, i: usize) -> bool {
+        self.slots.get(i).is_none_or(|s| s.target == Target::Empty)
+    }
+
     fn set_hot(&mut self, h: Hit) {
         let hot = match h {
-            Hit::Slot(i) => Some(i),
+            Hit::Slot(i) if !self.is_empty(i) => Some(i),
             _ => None,
         };
         let hub_hot = h == Hit::Hub;
@@ -337,6 +341,7 @@ impl App {
         self.message = None;
         match slot.target {
             Target::Open(page) => self.go(page),
+            Target::Empty => {}
             Target::Disabled => {
                 self.hot = Some(i);
                 self.hub_hot = false;
@@ -388,11 +393,17 @@ impl App {
 
     fn step(&mut self, by: isize) {
         let n = self.slots.len() as isize;
-        let next = match self.hot {
-            Some(i) => (i as isize + by).rem_euclid(n),
-            None if by > 0 => 0,
-            None => n - 1,
+        let mut next = match self.hot {
+            Some(i) => i as isize,
+            None if by > 0 => -1,
+            None => n,
         };
+        for _ in 0..n {
+            next = (next + by).rem_euclid(n);
+            if !self.is_empty(next as usize) {
+                break;
+            }
+        }
         self.set_hot(Hit::Slot(next as usize));
     }
 

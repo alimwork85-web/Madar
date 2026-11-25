@@ -20,7 +20,7 @@ Signature: the seven-slot wheel and the seven-slot app icon are the same shape.
 | Label / digit | 13 / 12, Segoe UI Variable Text, regular |
 | First slot | centered at 12 o'clock, then clockwise |
 
-Order: System, Settings, Sound, Bluetooth, Apps, Sites, Google. A folder replaces the slots in place, at most 8.
+Order: System, Settings, Sound, Bluetooth, Apps, Sites, Google. A folder replaces the slots in place. Apps and Sites always show at least 7 places, at most 8.
 Hub text: `Close` at the root, `Back` inside a folder, the slot name while hovering. Labels wrap to two lines, then end with an ellipsis.
 
 ## Slot states
@@ -30,7 +30,8 @@ Hub text: `Close` at the root, `Back` inside a folder, the slot name while hover
 | Hover or keyboard focus | accent color, on-accent text. No motion |
 | Pressed | accent color, 2 px inner outline in on-accent |
 | Disabled | hub color, text at 60%, label `Not ready` in the hub on hover |
-| Empty folder | one slot: `Add in Settings` |
+| First free place in Apps or Sites | `Add app` or `Add site`, opens Settings |
+| Other free places | slot color at 35% over the plate, no text, no hover, skipped by the keyboard |
 | Error | message in the hub for 4 s, wheel stays open |
 
 ## Themes
