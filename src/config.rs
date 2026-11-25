@@ -1,6 +1,6 @@
 //! Settings file (`config.json`): parse, validate, load and save.
 //!
-//! JSON shape: a single object with `hotkey`, `mouse`, `theme`, `autostart`,
+//! JSON shape: a single object with `hotkey`, `mouse`, `theme`, `size`, `autostart`,
 //! `show_names`, `my_apps`, `apps`, `tools` and `sites`. Unknown keys are ignored; missing keys take the default.
 
 use serde_json::{Map, Value};
@@ -47,11 +47,20 @@ pub enum Mouse {
     CtrlMiddle,
 }
 
+/// How large the wheel is.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Size {
+    Large,
+    Medium,
+    Small,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Config {
     pub hotkey: String,
     pub mouse: Mouse,
     pub theme: String,
+    pub size: Size,
     pub autostart: bool,
     /// False: the wheel shows icons only.
     pub show_names: bool,
@@ -67,6 +76,7 @@ impl Default for Config {
             hotkey: DEFAULT_HOTKEY.to_string(),
             mouse: Mouse::Back,
             theme: DEFAULT_THEME.to_string(),
+            size: Size::Large,
             autostart: false,
             show_names: true,
             my_apps: Vec::new(),
@@ -84,6 +94,27 @@ impl Mouse {
             Self::Back => "back",
             Self::Forward => "forward",
             Self::CtrlMiddle => "ctrl_middle",
+        }
+    }
+}
+
+impl Size {
+    /// In the order the Settings window shows them.
+    pub const ALL: [Self; 3] = [Self::Large, Self::Medium, Self::Small];
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Large => "large",
+            Self::Medium => "medium",
+            Self::Small => "small",
+        }
+    }
+
+    pub fn factor(self) -> f32 {
+        match self {
+            Self::Large => 1.0,
+            Self::Medium => 0.85,
+            Self::Small => 0.75,
         }
     }
 }
@@ -133,6 +164,12 @@ pub fn parse(text: &str) -> Result<Config, String> {
         } else {
             DEFAULT_THEME.to_string()
         };
+    }
+    if let Some(v) = obj.get("size") {
+        let name = as_str(v, "size")?;
+        // Like an unknown theme, an unknown size is the default one.
+        let known = Size::ALL.into_iter().find(|s| s.as_str() == name);
+        c.size = known.unwrap_or(Size::Large);
     }
     if let Some(v) = obj.get("autostart") {
         c.autostart = v
@@ -284,6 +321,7 @@ fn to_value(c: &Config) -> Value {
     root.insert("hotkey".into(), Value::String(c.hotkey.clone()));
     root.insert("mouse".into(), Value::String(c.mouse.as_str().into()));
     root.insert("theme".into(), Value::String(c.theme.clone()));
+    root.insert("size".into(), Value::String(c.size.as_str().into()));
     root.insert("autostart".into(), Value::Bool(c.autostart));
     root.insert("show_names".into(), Value::Bool(c.show_names));
     root.insert("my_apps".into(), Value::Array(apps(&c.my_apps)));
@@ -400,6 +438,7 @@ mod tests {
             hotkey: "Ctrl+Alt+M".to_string(),
             mouse: Mouse::CtrlMiddle,
             theme: "Ember".to_string(),
+            size: Size::Small,
             autostart: true,
             show_names: false,
             my_apps: vec![App {
@@ -517,6 +556,24 @@ mod tests {
             parse(r#"{"theme":"Space Gray"}"#).unwrap().theme,
             "Space Gray"
         );
+    }
+
+    #[test]
+    fn size_values() {
+        assert_eq!(parse("{}").unwrap().size, Size::Large);
+        for (text, size, factor) in [
+            ("large", Size::Large, 1.0),
+            ("medium", Size::Medium, 0.85),
+            ("small", Size::Small, 0.75),
+            ("huge", Size::Large, 1.0),
+            ("", Size::Large, 1.0),
+        ] {
+            let c = parse(&format!(r#"{{"size":"{text}"}}"#)).unwrap();
+            assert_eq!((c.size, c.size.factor()), (size, factor), "{text}");
+            assert_eq!(parse(&to_json(&c)).unwrap().size, size);
+        }
+        let e = parse(r#"{"size":2}"#).unwrap_err();
+        assert!(e.contains("size"), "{e}");
     }
 
     #[test]

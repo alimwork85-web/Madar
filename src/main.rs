@@ -99,7 +99,10 @@ struct App {
     paused: bool,
     visible: bool,
     center: POINT,
+    /// Device pixels per logical pixel of the wheel, in its chosen size.
     scale: f32,
+    /// `DRAG` in device pixels; a hand moves the same at every size.
+    drag: f32,
     page: Page,
     slots: Vec<Slot>,
     hot: Option<usize>,
@@ -176,7 +179,10 @@ impl App {
             let _ = GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi, &mut unused);
             let _ = GetMonitorInfoW(monitor, &mut info);
         }
-        self.scale = dpi as f32 / 96.0;
+        let screen = dpi as f32 / 96.0;
+        // A size chosen while the wheel shows waits for the next opening.
+        self.scale = screen * self.config.size.factor();
+        self.drag = DRAG * screen;
         let r = (wheel::PLATE_R * self.scale).ceil() as i32;
         self.center = wheel::place(p, r, info.rcWork);
         self.message = None;
@@ -775,7 +781,7 @@ impl App {
     fn summon_move(&mut self, p: POINT) {
         let Some(start) = self.summon else { return };
         let (dx, dy) = ((p.x - start.x) as f32, (p.y - start.y) as f32);
-        self.dragged |= dx.hypot(dy) > DRAG * self.scale;
+        self.dragged |= dx.hypot(dy) > self.drag;
         if self.dragged {
             self.set_hot(self.drag_hit(p));
         }
@@ -855,6 +861,8 @@ fn changed(old: &Config, new: &Config) -> Field {
         Field::Mouse
     } else if old.theme != new.theme {
         Field::Theme
+    } else if old.size != new.size {
+        Field::Size
     } else if old.autostart != new.autostart {
         Field::Autostart
     } else if old.show_names != new.show_names {
@@ -1144,6 +1152,7 @@ fn start(config: Config, unreadable: bool) -> windows::core::Result<()> {
         visible: false,
         center: POINT::default(),
         scale: 1.0,
+        drag: DRAG,
         page: Page::Root,
         slots: Vec::new(),
         hot: None,

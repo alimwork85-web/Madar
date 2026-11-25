@@ -9,7 +9,7 @@ mod look;
 pub mod start_menu;
 
 use crate::actions;
-use crate::config::{self, App, Config, Mouse, Site, THEMES};
+use crate::config::{self, App, Config, Mouse, Site, Size, THEMES};
 use std::cell::{Cell, RefCell};
 use std::mem::replace;
 use std::path::Path;
@@ -29,6 +29,7 @@ pub enum Field {
     Hotkey,
     Mouse,
     Theme,
+    Size,
     Autostart,
     Names,
     MyApps,
@@ -43,10 +44,11 @@ impl Field {
             Self::Hotkey => 0,
             Self::Mouse => 1,
             Self::Theme => 2,
-            Self::Autostart => 3,
-            Self::Names => 4,
+            Self::Size => 3,
+            Self::Autostart => 4,
+            Self::Names => 5,
             // One list is shown at a time.
-            Self::MyApps | Self::Apps | Self::Tools | Self::Sites => 5,
+            Self::MyApps | Self::Apps | Self::Tools | Self::Sites => 6,
         }
     }
 }
@@ -102,6 +104,7 @@ const ID_MOUSE: u16 = 101;
 const ID_THEME: u16 = 102;
 const ID_AUTOSTART: u16 = 103;
 const ID_NAMES: u16 = 104;
+const ID_SIZE: u16 = 105;
 const TAB_ID: u16 = 110;
 const TAB_TEXT: [&str; 4] = ["M&y Apps", "A&pps", "Too&ls", "S&ites"];
 const ITEMS_ID: u16 = 120;
@@ -165,20 +168,21 @@ struct Widgets {
     hotkey: HWND,
     mouse: HWND,
     theme: HWND,
+    size: HWND,
     autostart: HWND,
     names: HWND,
     tabs: [HWND; 4],
     items: HWND,
     buttons: [HWND; 7],
-    label: [HWND; 4],
-    error: [HWND; 6],
+    label: [HWND; 5],
+    error: [HWND; 7],
 }
 
 impl Widgets {
     /// Every control, for one font pass.
     fn all(self) -> Vec<HWND> {
-        let mut v = vec![self.hotkey, self.mouse, self.theme, self.autostart];
-        v.push(self.names);
+        let mut v = vec![self.hotkey, self.mouse, self.theme, self.size];
+        v.extend([self.autostart, self.names]);
         v.extend(self.tabs);
         v.push(self.items);
         v.extend(self.buttons);
@@ -201,7 +205,7 @@ struct State {
     /// Loaded from our resource and so ours to destroy.
     owned: bool,
     w: Widgets,
-    errors: [Option<String>; 6],
+    errors: [Option<String>; 7],
     /// Set while controls are written from code, so nothing counts as a change.
     busy: u32,
     /// Last key captured in the shortcut field; its WM_CHAR is swallowed.
@@ -318,6 +322,7 @@ pub fn translate(msg: &MSG) -> bool {
     let Widgets {
         mouse,
         theme,
+        size,
         items,
         ..
     } = w;
@@ -326,7 +331,7 @@ pub fn translate(msg: &MSG) -> bool {
         if vk == VK_ESCAPE.0 as u32 {
             // Esc closes, unless the key belongs to another window of ours.
             // An open drop-down list takes Esc for itself.
-            let dropped = [mouse, theme]
+            let dropped = [mouse, theme, size]
                 .iter()
                 .any(|c| send(*c, CB_GETDROPPEDSTATE, 0, 0) != 0);
             if !dropped && unsafe { GetAncestor(msg.hwnd, GA_ROOT) } == hwnd {
@@ -348,7 +353,7 @@ pub fn translate(msg: &MSG) -> bool {
     let ours = unsafe { GetAncestor(msg.hwnd, GA_ROOT) } == hwnd;
     if ours && scrolls(hwnd) {
         if msg.message == WM_MOUSEWHEEL {
-            let dropped = [mouse, theme]
+            let dropped = [mouse, theme, size]
                 .iter()
                 .any(|c| send(*c, CB_GETDROPPEDSTATE, 0, 0) != 0);
             // Over any control: no list here is longer than its box.
@@ -611,7 +616,7 @@ fn setup(hwnd: HWND) -> bool {
     let (big, small, owned) = load_icons();
 
     let w = unsafe { build_controls(hwnd) };
-    if w.all().len() != 27 {
+    if w.all().len() != 30 {
         free(w, font, big, small, owned);
         return false;
     }
@@ -694,6 +699,9 @@ unsafe fn build_controls(hwnd: HWND) -> Widgets {
     w.label[2] = label("T&heme");
     w.theme = combo(ID_THEME);
     w.error[2] = error(2);
+    w.label[3] = label("Si&ze");
+    w.size = combo(ID_SIZE);
+    w.error[3] = error(3);
     let check = WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(BS_AUTOCHECKBOX as u32);
     w.autostart = unsafe {
         make(
@@ -704,9 +712,9 @@ unsafe fn build_controls(hwnd: HWND) -> Widgets {
             ID_AUTOSTART,
         )
     };
-    w.error[3] = error(3);
-    w.names = unsafe { make(hwnd, w!("BUTTON"), "Show &names", check, ID_NAMES) };
     w.error[4] = error(4);
+    w.names = unsafe { make(hwnd, w!("BUTTON"), "Show &names", check, ID_NAMES) };
+    w.error[5] = error(5);
     for (i, text) in TAB_TEXT.iter().enumerate() {
         // One group: Tab reaches the pressed one, the arrows switch.
         let radio = BS_AUTORADIOBUTTON | BS_PUSHLIKE;
@@ -717,12 +725,12 @@ unsafe fn build_controls(hwnd: HWND) -> Widgets {
         w.tabs[i] = unsafe { make(hwnd, w!("BUTTON"), text, style, TAB_ID + i as u16) };
     }
     // After the switch, which needs no label: screen readers name the list by it.
-    w.label[3] = label("Lists");
+    w.label[4] = label("Lists");
     w.items = unsafe { make(hwnd, w!("LISTBOX"), "", list_style() | WS_GROUP, ITEMS_ID) };
     for (i, text) in BUTTON_TEXT.iter().enumerate() {
         w.buttons[i] = button(text, BUTTONS + i as u16, false);
     }
-    w.error[5] = error(5);
+    w.error[6] = error(6);
     w
 }
 
@@ -841,6 +849,15 @@ fn command(id: u16, code: u16) {
                 .to_string();
             apply(Field::Theme, current_sel(), move |c| c.theme = name);
         }
+        ID_SIZE if code == CBN_SELCHANGE as u16 => {
+            let Some(h) = with_state(|s| s.w.size) else {
+                return;
+            };
+            let size = combo_sel(h)
+                .and_then(|i| Size::ALL.get(i).copied())
+                .unwrap_or(Size::Large);
+            apply(Field::Size, current_sel(), |c| c.size = size);
+        }
         ID_AUTOSTART if code == BN_CLICKED as u16 => {
             let Some(h) = with_state(|s| s.w.autostart) else {
                 return;
@@ -876,6 +893,10 @@ fn fill_combos(w: Widgets) {
     for theme in THEMES {
         let text = wide(theme);
         send(w.theme, CB_ADDSTRING, 0, text.as_ptr() as isize);
+    }
+    for size in Size::ALL {
+        let text = wide(size_label(size));
+        send(w.size, CB_ADDSTRING, 0, text.as_ptr() as isize);
     }
 }
 
@@ -1036,7 +1057,7 @@ fn reveal(hwnd: HWND) {
 
 /// Keys the focused control does not need itself.
 fn scroll_key(vk: u32, focus: HWND, w: &Widgets) -> Option<SCROLLBAR_COMMAND> {
-    if [w.hotkey, w.mouse, w.theme, w.items].contains(&focus) {
+    if [w.hotkey, w.mouse, w.theme, w.size, w.items].contains(&focus) {
         return None;
     }
     let keys = [
@@ -1058,9 +1079,9 @@ fn repaint(hwnd: HWND) {
 /// The client height in which every button shows.
 fn needed(s: &State) -> i32 {
     let g = Geometry::new(s.dpi);
-    let errors = s.errors[..5].iter().flatten().count() as i32;
+    let errors = s.errors[..6].iter().flatten().count() as i32;
     let buttons = s.w.buttons.len() as i32 * (g.btn_h + g.gap) - g.gap;
-    2 * g.margin + 6 * g.row + errors * g.err + buttons
+    2 * g.margin + 7 * g.row + errors * g.err + buttons
 }
 
 /// Control rectangles for the client size, computed with no API calls.
@@ -1072,11 +1093,12 @@ fn arrange(s: &State, width: i32, height: i32) -> Vec<(HWND, i32, i32, i32, i32)
     let mut out = Vec::with_capacity(32);
     let mut y = g.margin;
 
-    for i in 0..3 {
+    for i in 0..4 {
         let (label, control, combo) = match i {
             0 => (s.w.label[0], s.w.hotkey, false),
             1 => (s.w.label[1], s.w.mouse, true),
-            _ => (s.w.label[2], s.w.theme, true),
+            2 => (s.w.label[2], s.w.theme, true),
+            _ => (s.w.label[3], s.w.size, true),
         };
         let ch = if combo { px(COMBO_H, s.dpi) } else { g.ctl };
         out.push((label, xl, y, g.label, g.ctl));
@@ -1092,7 +1114,7 @@ fn arrange(s: &State, width: i32, height: i32) -> Vec<(HWND, i32, i32, i32, i32)
         y += g.row + if shown { g.err } else { 0 };
     }
 
-    for (control, i) in [(s.w.autostart, 3), (s.w.names, 4)] {
+    for (control, i) in [(s.w.autostart, 4), (s.w.names, 5)] {
         out.push((control, xc, y, cw, g.ctl));
         let shown = s.errors[i].is_some();
         out.push((
@@ -1105,14 +1127,14 @@ fn arrange(s: &State, width: i32, height: i32) -> Vec<(HWND, i32, i32, i32, i32)
         y += g.row + if shown { g.err } else { 0 };
     }
 
-    out.push((s.w.label[3], xl, y, g.label, g.btn_h));
+    out.push((s.w.label[4], xl, y, g.label, g.btn_h));
     let tab_w = (cw - 3 * g.gap) / 4;
     for (i, tab) in s.w.tabs.into_iter().enumerate() {
         out.push((tab, xc + i as i32 * (tab_w + g.gap), y, tab_w, g.btn_h));
     }
     y += g.row;
 
-    let shown = s.errors[5].is_some();
+    let shown = s.errors[6].is_some();
     let err_h = if shown { g.err + g.gap } else { 0 };
     let bx = width - g.margin - g.btn_w;
     let lw = (bx - g.gap - xc).max(px(40, s.dpi));
@@ -1123,7 +1145,7 @@ fn arrange(s: &State, width: i32, height: i32) -> Vec<(HWND, i32, i32, i32, i32)
         out.push((button, bx, by, g.btn_w, g.btn_h));
     }
     out.push((
-        s.w.error[5],
+        s.w.error[6],
         xc,
         y + list_h + g.gap,
         lw,
@@ -1186,6 +1208,7 @@ fn refresh(sel: Option<usize>) {
     set_text(w.hotkey, &c.hotkey);
     send(w.mouse, CB_SETCURSEL, mouse_index(c.mouse), 0);
     send(w.theme, CB_SETCURSEL, theme_index(&c.theme), 0);
+    send(w.size, CB_SETCURSEL, size_index(c.size), 0);
     let check = |h: HWND, on: bool| {
         let state = if on { BST_CHECKED } else { BST_UNCHECKED };
         send(h, BM_SETCHECK, state.0 as usize, 0);
@@ -1518,6 +1541,18 @@ fn mouse_at(index: usize) -> Mouse {
 
 fn theme_index(name: &str) -> usize {
     THEMES.iter().position(|&t| t == name).unwrap_or(1)
+}
+
+fn size_label(size: Size) -> &'static str {
+    match size {
+        Size::Large => "Large",
+        Size::Medium => "Medium",
+        Size::Small => "Small",
+    }
+}
+
+fn size_index(size: Size) -> usize {
+    Size::ALL.iter().position(|&s| s == size).unwrap_or(0)
 }
 
 /// Selection after moving up; None when the row cannot move.
@@ -2726,7 +2761,7 @@ mod tests {
     }
 
     /// Only the numbers matter here: the controls are made-up handles.
-    fn dummy_state(errors: [Option<String>; 6]) -> State {
+    fn dummy_state(errors: [Option<String>; 7]) -> State {
         let mut w = Widgets::default();
         for (i, field) in [
             &mut w.hotkey,
@@ -2741,6 +2776,7 @@ mod tests {
         {
             *field = handle(1 + i);
         }
+        w.size = handle(7);
         w.buttons = std::array::from_fn(|i| handle(10 + i));
         w.tabs = std::array::from_fn(|i| handle(20 + i));
         w.label = std::array::from_fn(|i| handle(30 + i));
@@ -2782,22 +2818,24 @@ mod tests {
         assert_eq!(rect(&plan, handle(1)).1, 16);
         assert_eq!(rect(&plan, handle(2)).1, 52);
         assert_eq!(rect(&plan, handle(3)).1, 88);
-        assert_eq!(rect(&plan, handle(4)).1, 124);
-        assert_eq!(rect(&plan, handle(5)).1, 160);
+        assert_eq!(rect(&plan, handle(7)).1, 124);
+        assert_eq!(rect(&plan, handle(4)).1, 160);
+        assert_eq!(rect(&plan, handle(5)).1, 196);
         // The switch, then the list takes the rest.
-        assert_eq!(rect(&plan, handle(20)).1, 196);
-        assert_eq!(rect(&plan, handle(6)), (126, 232, 222, 312));
+        assert_eq!(rect(&plan, handle(20)).1, 232);
+        assert_eq!(rect(&plan, handle(6)), (126, 268, 222, 276));
         let end = |plan: &Vec<_>, h| rect(plan, h).1 + rect(plan, h).3;
         assert!(end(&plan, handle(16)) <= 560 - 16);
         // Extra height goes to the list, extra width to the right column.
         let tall = arrange(&s, 600, 600);
-        assert_eq!(rect(&tall, handle(6)).3, 352);
+        assert_eq!(rect(&tall, handle(6)).3, 316);
         assert_eq!(rect(&tall, handle(1)).1, 16);
         // An error under a field moves every row below it down by its height.
-        let with_error = dummy_state([Some("x".to_string()), None, None, None, None, None]);
+        let mut with_error = dummy_state(Default::default());
+        with_error.errors[0] = Some("x".to_string());
         let plan = arrange(&with_error, 480, 560);
         assert_eq!(rect(&plan, handle(2)).1, 72);
-        assert_eq!(rect(&plan, handle(6)).1, 252);
+        assert_eq!(rect(&plan, handle(6)).1, 288);
         assert_eq!(rect(&plan, handle(40)).3, 20);
         // A short window scrolls over the height in which every button fits.
         for s in [&s, &with_error] {
@@ -2811,14 +2849,12 @@ mod tests {
         assert_eq!(key(VK_NEXT, handle(10)), Some(SB_PAGEDOWN));
         assert_eq!(key(VK_NEXT, handle(6)), None);
         assert_eq!(key(VK_TAB, handle(10)), None);
-        // Every error at once still fits.
-        let plan = arrange(
-            &dummy_state(std::array::from_fn(|_| Some("x".into()))),
-            480,
-            560,
-        );
-        assert!(end(&plan, handle(16)) <= 560);
-        assert!(end(&plan, handle(45)) <= 560);
+        // Every error at once scrolls over a height in which all of it fits.
+        let s = dummy_state(std::array::from_fn(|_| Some("x".into())));
+        let need = needed(&s);
+        let plan = arrange(&s, 480, need);
+        assert!(end(&plan, handle(16)) <= need);
+        assert!(end(&plan, handle(46)) <= need);
     }
 
     #[test]

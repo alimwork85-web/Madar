@@ -20,6 +20,8 @@ Signature: the eight-slot wheel and the eight-slot app icon are the same shape.
 | Label / digit | 13 / 12, Segoe UI Variable Text, regular |
 | First slot | centered at 12 o'clock, then clockwise |
 
+Sizes: Large as above, Medium 85%, Small 75%; icons, text and gaps follow. A choice waits for the next opening. The drag distance that presses a slot stays the same at every size.
+
 Order: My Apps, Apps, Sites, Google, System, Menu (opens Windows Settings), Sound & Light, Tools. A folder replaces the slots in place. Every page shows 8 places.
 My Apps holds the programs the user made, Tools the user's tools, Apps all others. They work alike and a program can move between them.
 With Show names off, every slot shows its icon alone, 32 and centered, without digit and label. The digits still work and the hub still names the slot.
@@ -69,7 +71,7 @@ Keyboard: none. Mouse: opacity and 0.96 to 1 scale over 120 ms, ease-out. Closin
 
 ## Settings window
 Native controls, 480 x 560, resizable. This window, Add, Edit and the Start menu picker take the theme's colors, title bar included, and change with it at once: window and labels on the plate color, controls in the slot color with a border of text at 50% over it, focus, the default button, checks and chosen rows in the accent. Focus is never shown by color alone on buttons and boxes: the border grows from 1 device pixel to 2 px. The menu of Move to..., message boxes and the Browse window stay Windows' own. One column, labels left, controls right, 16 px margin, 36 px rows. On a screen too short for it, the window is as tall as the screen and scrolls: wheel, touch, bar, Page Up and Down, Home and End, and the focused control is brought into view.
-Order: Shortcut, Mouse button, Theme, Start with Windows, Show names, then a switch (My Apps, Apps, Tools, Sites) over one list. Buttons: Add, Add from Start, Edit, Remove, Move up, Move down, Move to... The last opens a menu of the other two program lists, a full one grayed; it is off for Sites and when both are full.
+Order: Shortcut, Mouse button, Theme, Size, Start with Windows, Show names, then a switch (My Apps, Apps, Tools, Sites) over one list. Buttons: Add, Add from Start, Edit, Remove, Move up, Move down, Move to... The last opens a menu of the other two program lists, a full one grayed; it is off for Sites and when both are full.
 Add site starts at Address, and Name follows it until the user writes another: `mail.google.com` gives `Google Mail`. An existing name is never replaced.
 Changes save at once. An error appears under its control. Every control is reachable with Tab and has an access key.
 
