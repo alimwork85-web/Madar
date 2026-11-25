@@ -335,12 +335,6 @@ fn render(v: &Value) -> Result<String, String> {
     serde_json::to_string_pretty(v).map_err(|e| format!("cannot serialize settings: {e}"))
 }
 
-/// Pretty JSON for `c`.
-pub fn to_json(c: &Config) -> String {
-    // Serializing strings and bools cannot fail; empty output would be a bug.
-    render(&to_value(c)).unwrap_or_default()
-}
-
 pub fn load(path: &Path) -> Result<Config, String> {
     let file = match std::fs::File::open(path) {
         Ok(f) => f,
@@ -501,9 +495,12 @@ mod tests {
         assert_eq!(load(&path).unwrap(), c);
         assert!(tmp_leftovers(&dir).is_empty());
 
-        let via_text = parse(&to_json(&c)).unwrap();
+        let via_text = parse(&render(&to_value(&c)).unwrap()).unwrap();
         assert_eq!(via_text, c);
-        assert!(to_json(&c).contains("\n  \""), "output must be pretty");
+        assert!(
+            render(&to_value(&c)).unwrap().contains("\n  \""),
+            "output must be pretty"
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -570,7 +567,7 @@ mod tests {
         ] {
             let c = parse(&format!(r#"{{"size":"{text}"}}"#)).unwrap();
             assert_eq!((c.size, c.size.factor()), (size, factor), "{text}");
-            assert_eq!(parse(&to_json(&c)).unwrap().size, size);
+            assert_eq!(parse(&render(&to_value(&c)).unwrap()).unwrap().size, size);
         }
         let e = parse(r#"{"size":2}"#).unwrap_err();
         assert!(e.contains("size"), "{e}");
