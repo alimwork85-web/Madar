@@ -2,6 +2,7 @@
 
 pub mod paint;
 
+use crate::audio::output::Device;
 use crate::config::Config;
 use crate::icons::Icon;
 use std::rc::Rc;
@@ -9,6 +10,8 @@ use windows::Win32::Foundation::{POINT, RECT};
 
 /// Places of every wheel.
 const PLACES: usize = 8;
+/// Where the output devices start on the Sound page.
+pub const FIRST_OUTPUT: usize = 3;
 
 // Logical pixels, from DESIGN.md.
 pub const PLATE_R: f32 = 170.0;
@@ -41,6 +44,9 @@ pub enum Action {
     VolumeUp,
     VolumeDown,
     Mute,
+    /// An output device.
+    Output(usize),
+    SoundSettings,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -126,6 +132,39 @@ pub fn slots(page: Page, c: &Config) -> Vec<Slot> {
             slot("Volume down", '\u{E993}', Do(VolumeDown)),
         ]),
     }
+}
+
+/// The Sound page's places after the volume. Windows' own page shows the rest.
+pub fn outputs(devices: &[Device]) -> Vec<Slot> {
+    let places = PLACES - FIRST_OUTPUT;
+    let mut shown: Vec<usize> = (0..devices.len()).collect();
+    let more = devices.len() > places;
+    if more {
+        shown.truncate(places - 1);
+        // The one in use is never hidden.
+        if let Some(i) = devices.iter().position(|d| d.current)
+            && !shown.contains(&i)
+        {
+            shown[places - 2] = i;
+        }
+    }
+    let mut all: Vec<Slot> = (shown.into_iter())
+        .map(|i| {
+            let icon = if devices[i].current {
+                '\u{E73E}'
+            } else {
+                '\u{E7F5}'
+            };
+            slot(&devices[i].name, icon, Target::Do(Action::Output(i)))
+        })
+        .collect();
+    if more {
+        all.push(slot("More", '\u{E712}', Target::Do(Action::SoundSettings)));
+    }
+    while all.len() < places {
+        all.push(slot("", ' ', Target::Empty));
+    }
+    all
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -224,6 +263,34 @@ mod tests {
         };
         let c = place(POINT { x: 5, y: 5 }, 170, small);
         assert_eq!((c.x, c.y), (100, 170));
+    }
+
+    #[test]
+    fn output_devices() {
+        let some = |n: usize, current: usize| -> Vec<Device> {
+            (0..n)
+                .map(|i| Device {
+                    id: i.to_string(),
+                    name: format!("Device {i}"),
+                    current: i == current,
+                })
+                .collect()
+        };
+        let shown = |n, current| -> Vec<Target> {
+            outputs(&some(n, current))
+                .iter()
+                .map(|s| s.target)
+                .collect()
+        };
+        let out = |i| Target::Do(Action::Output(i));
+        let more = Target::Do(Action::SoundSettings);
+        assert_eq!(shown(0, 0), [Target::Empty; 5]);
+        assert_eq!(shown(2, 0)[..3], [out(0), out(1), Target::Empty]);
+        assert_eq!(shown(5, 4), [out(0), out(1), out(2), out(3), out(4)]);
+        assert_eq!(shown(6, 1), [out(0), out(1), out(2), out(3), more]);
+        assert_eq!(shown(9, 7), [out(0), out(1), out(2), out(7), more]);
+        let icons: Vec<char> = outputs(&some(2, 1)).iter().map(|s| s.icon).collect();
+        assert_eq!(icons[..2], ['\u{E7F5}', '\u{E73E}']);
     }
 
     #[test]

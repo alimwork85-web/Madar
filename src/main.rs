@@ -10,6 +10,7 @@ mod tray;
 mod trigger;
 mod wheel;
 
+use audio::output::Device;
 use audio::{Audio, Order, Volume};
 use config::{Config, Mouse};
 use settings::{Field, Problem};
@@ -100,6 +101,7 @@ struct App {
     audio: Option<Audio>,
     /// The last answer; cleared when the wheel closes.
     volume: Option<Result<Volume, String>>,
+    devices: Vec<Device>,
     /// Scrolling not yet worth one percent.
     scroll_rest: i32,
 }
@@ -188,6 +190,7 @@ impl App {
         self.running = None;
         self.audio = None;
         self.volume = None;
+        self.devices.clear();
         self.scroll_rest = 0;
         self.animation = None;
         self.pressed = None;
@@ -215,7 +218,7 @@ impl App {
         }
         if page == Page::Sound {
             self.sound(Order::Read);
-            self.show_volume();
+            self.show_sound();
         }
         self.draw();
     }
@@ -228,15 +231,27 @@ impl App {
     }
 
     fn sound_answered(&mut self) {
-        let Some(answer) = self.audio.as_ref().and_then(Audio::answer) else {
-            return;
-        };
-        self.volume = Some(answer);
-        self.show_volume();
+        let answers = self.audio.as_ref().map(Audio::answers).unwrap_or_default();
+        let mut failed = false;
+        for answer in answers {
+            self.volume = Some(answer.volume);
+            self.devices = answer.devices.unwrap_or(std::mem::take(&mut self.devices));
+            failed |= answer.failed;
+        }
+        self.show_sound();
         self.draw();
+        if failed {
+            self.launch(Action::SoundSettings);
+        }
     }
 
-    fn show_volume(&mut self) {
+    fn show_sound(&mut self) {
+        if self.page == Page::Sound {
+            self.slots.truncate(wheel::FIRST_OUTPUT);
+            self.slots.extend(wheel::outputs(&self.devices));
+            // A device may have left the place under the pointer.
+            self.hot = self.hot.filter(|&i| !self.is_empty(i));
+        }
         let muted = matches!(self.volume, Some(Ok(v)) if v.muted);
         for slot in &mut self.slots {
             if slot.target == Target::Do(Action::Mute) {
@@ -278,6 +293,15 @@ impl App {
         };
         let slot = self.hot.and_then(|i| self.slots.get(i));
         Some(match slot {
+            // Their name is the news.
+            Some(s)
+                if matches!(
+                    s.target,
+                    Target::Do(Action::Output(_) | Action::SoundSettings)
+                ) =>
+            {
+                return None;
+            }
             Some(s) => format!("{}\n{value}", s.label),
             None => value,
         })
@@ -447,6 +471,12 @@ impl App {
             Target::Do(Action::VolumeUp) => self.sound(Order::Change(audio::STEP)),
             Target::Do(Action::VolumeDown) => self.sound(Order::Change(-audio::STEP)),
             Target::Do(Action::Mute) => self.sound(Order::ToggleMute),
+            Target::Do(Action::Output(i)) => {
+                if let Some(d) = self.devices.get(i).filter(|d| !d.current) {
+                    let id = d.id.clone();
+                    self.sound(Order::Choose(id));
+                }
+            }
             Target::Do(action) => self.launch(action),
         }
     }
@@ -892,6 +922,7 @@ fn start(config: Config, unreadable: bool) -> windows::core::Result<()> {
         running: None,
         audio: None,
         volume: None,
+        devices: Vec::new(),
         scroll_rest: 0,
     };
     // Draws once while hidden, so the first real frame is fast.
@@ -914,6 +945,10 @@ fn main() {
         // An empty answer tells the parent that the user cancelled.
         let _ = settings::browse::child(args);
         return;
+    }
+    if first.as_deref() == Some(audio::output::CHILD) {
+        // The parent reads the device back, so the reason does not matter.
+        std::process::exit(audio::output::child(args.next()).map_or_else(|e| e.code().0, |()| 0));
     }
     if first.as_deref() == Some(icons::CHILD) {
         let side = args.next().and_then(|s| s.parse().ok());

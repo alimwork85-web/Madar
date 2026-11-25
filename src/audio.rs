@@ -1,8 +1,11 @@
-//! Volume and mute of the default output device.
+//! Volume and mute of the default output device, and the choice of it.
 //!
 //! The audio service can block, so its calls run on a worker thread that lives
 //! only while the wheel uses them.
 
+pub mod output;
+
+use output::Device;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use windows::Win32::Foundation::{ERROR_NOT_FOUND, HWND, LPARAM, WPARAM};
 use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
@@ -25,15 +28,22 @@ pub struct Volume {
     pub muted: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Order {
     Read,
     /// Percent to add.
     Change(i32),
     ToggleMute,
+    /// Id of the device to use.
+    Choose(String),
 }
 
-type Answer = Result<Volume, String>;
+pub struct Answer {
+    pub volume: Result<Volume, String>,
+    /// None when the devices were not read again.
+    pub devices: Option<Vec<Device>>,
+    /// The device could not be changed.
+    pub failed: bool,
+}
 
 pub struct Audio {
     tx: Sender<Order>,
@@ -49,8 +59,7 @@ impl Audio {
         std::thread::spawn(move || {
             let com = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.is_ok();
             for order in orders {
-                let answer = run(order).map_err(|e| message(e.code()).to_string());
-                if answers.send(answer).is_err() {
+                if answers.send(run(order)).is_err() {
                     break;
                 }
                 let hwnd = HWND(target as *mut _);
@@ -68,9 +77,8 @@ impl Audio {
         let _ = self.tx.send(order);
     }
 
-    /// The newest answer, if any came.
-    pub fn answer(&self) -> Option<Answer> {
-        self.rx.try_iter().last()
+    pub fn answers(&self) -> Vec<Answer> {
+        self.rx.try_iter().collect()
     }
 }
 
@@ -82,16 +90,42 @@ fn message(code: HRESULT) -> &'static str {
     }
 }
 
-fn run(order: Order) -> windows::core::Result<Volume> {
+fn run(order: Order) -> Answer {
+    let found = unsafe {
+        CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL)
+    };
+    let text = |e: windows::core::Error| message(e.code()).to_string();
+    let devices = match found {
+        Ok(d) => d,
+        Err(e) => {
+            return Answer {
+                volume: Err(text(e)),
+                devices: None,
+                failed: matches!(order, Order::Choose(_)),
+            };
+        }
+    };
+    let failed = match &order {
+        Order::Choose(id) => !output::choose(&devices, id),
+        _ => false,
+    };
+    let changed_list = matches!(order, Order::Read | Order::Choose(_));
+    Answer {
+        failed,
+        devices: changed_list.then(|| output::list(&devices).unwrap_or_default()),
+        volume: volume(&devices, order).map_err(text),
+    }
+}
+
+fn volume(devices: &IMMDeviceEnumerator, order: Order) -> windows::core::Result<Volume> {
     unsafe {
-        let devices: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
         // Asked every time: the default device may have changed.
         let device = devices.GetDefaultAudioEndpoint(eRender, eMultimedia)?;
         let volume: IAudioEndpointVolume = device.Activate(CLSCTX_ALL, None)?;
         let none = std::ptr::null();
         let muted = volume.GetMute()?.as_bool();
         match order {
-            Order::Read => {}
+            Order::Read | Order::Choose(_) => {}
             Order::Change(by) => {
                 let level = changed(volume.GetMasterVolumeLevelScalar()?, by);
                 volume.SetMasterVolumeLevelScalar(level, none)?;

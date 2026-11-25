@@ -24,6 +24,7 @@ const RUN: &str = "shell:::{2559a1f3-21d7-11d4-bdaf-00c04f60b9f0}";
 /// The folder behind the Start menu's list; an app id follows.
 pub const START_APPS: &str = "shell:AppsFolder\\";
 const SETTINGS: &str = "ms-settings:";
+const SOUND_SETTINGS: &str = "ms-settings:sound";
 
 #[derive(Debug, PartialEq)]
 enum Plan {
@@ -86,10 +87,17 @@ fn plan(action: Action, c: &Config) -> Result<Plan, String> {
                 }),
             }
         }
+        Action::SoundSettings => Ok(Shell {
+            file: SOUND_SETTINGS.to_string(),
+            args: String::new(),
+            dir: None,
+        }),
         // The caller handles these.
-        Action::AddItems | Action::VolumeUp | Action::VolumeDown | Action::Mute => {
-            Err("Not ready".to_string())
-        }
+        Action::AddItems
+        | Action::VolumeUp
+        | Action::VolumeDown
+        | Action::Mute
+        | Action::Output(_) => Err("Not ready".to_string()),
     }
 }
 
@@ -271,6 +279,14 @@ mod tests {
             plan(Action::Settings, &c).unwrap(),
             Plan::Shell {
                 file: "ms-settings:".to_string(),
+                args: String::new(),
+                dir: None,
+            }
+        );
+        assert_eq!(
+            plan(Action::SoundSettings, &c).unwrap(),
+            Plan::Shell {
+                file: "ms-settings:sound".to_string(),
                 args: String::new(),
                 dir: None,
             }
