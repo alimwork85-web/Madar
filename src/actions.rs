@@ -112,6 +112,8 @@ fn plan(action: Action, c: &Config) -> Result<Plan, String> {
         Action::AddItems
         | Action::Bluetooth
         | Action::RestartExplorer
+        | Action::BrightnessUp
+        | Action::BrightnessDown
         | Action::VolumeUp
         | Action::VolumeDown
         | Action::Mute

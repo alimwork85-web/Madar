@@ -4,6 +4,7 @@ mod actions;
 mod audio;
 mod autostart;
 mod bluetooth;
+mod brightness;
 mod config;
 mod icons;
 mod maintenance;
@@ -15,6 +16,7 @@ mod wheel;
 
 use audio::output::Device;
 use audio::{Audio, Order, Volume};
+use brightness::Light;
 use config::{Config, Mouse};
 use settings::{Field, Problem};
 use std::cell::RefCell;
@@ -111,6 +113,10 @@ struct App {
     /// The last answer; cleared when the wheel closes.
     volume: Option<Result<Volume, String>>,
     devices: Vec<Device>,
+    /// Open while the wheel uses the brightness.
+    light: Option<Light>,
+    /// The last answer; cleared when the wheel closes.
+    brightness: Option<brightness::Answer>,
     /// Scrolling not yet worth one percent.
     scroll_rest: i32,
     /// Reading or switching the Bluetooth radio. Kept when the wheel closes,
@@ -208,6 +214,8 @@ impl App {
         self.audio = None;
         self.volume = None;
         self.devices.clear();
+        self.light = None;
+        self.brightness = None;
         self.scroll_rest = 0;
         self.radio_state = None;
         self.animation = None;
@@ -240,6 +248,7 @@ impl App {
                 self.radio = Some(bluetooth::start(self.hwnd, false));
             }
             self.sound(Order::Read);
+            self.shine(brightness::Order::Read);
             self.show_sound();
             unsafe { SetTimer(Some(self.hwnd), DEVICES, DEVICES_MS, None) };
         } else {
@@ -313,6 +322,43 @@ impl App {
             .send(order);
     }
 
+    fn shine(&mut self, order: brightness::Order) {
+        let hwnd = self.hwnd;
+        self.light
+            .get_or_insert_with(|| Light::new(hwnd))
+            .send(order);
+    }
+
+    fn light_answered(&mut self) {
+        let answers = self.light.as_ref().map(Light::answers).unwrap_or_default();
+        if let Some(&answer) = answers.last() {
+            self.brightness = Some(answer);
+            self.draw();
+        }
+    }
+
+    fn on_brightness_slot(&self) -> bool {
+        let slot = self.hot.and_then(|i| self.slots.get(i));
+        slot.is_some_and(|s| {
+            matches!(
+                s.target,
+                Target::Do(Action::BrightnessUp | Action::BrightnessDown)
+            )
+        })
+    }
+
+    /// What the hub says about the brightness.
+    fn light_text(&self) -> Option<String> {
+        if !self.on_brightness_slot() {
+            return None;
+        }
+        let slot = self.hot.and_then(|i| self.slots.get(i))?;
+        Some(match self.brightness? {
+            Some(percent) => format!("{}\n{percent}%", slot.label),
+            None => "Brightness not available".to_string(),
+        })
+    }
+
     fn sound_answered(&mut self) {
         let answers = self.audio.as_ref().map(Audio::answers).unwrap_or_default();
         let mut failed = false;
@@ -368,13 +414,21 @@ impl App {
             return;
         }
         let by = audio::scrolled(&mut self.scroll_rest, delta);
-        if by != 0 {
+        if by == 0 {
+            return;
+        }
+        if self.on_brightness_slot() {
+            self.shine(brightness::Order::Change(by));
+        } else {
             self.sound(Order::Change(by));
         }
     }
 
     /// What the hub says about the sound, after the name of the hot slot.
     fn volume_text(&self) -> Option<String> {
+        if self.on_brightness_slot() {
+            return None;
+        }
         let on_page = self.page == Page::Sound && !self.hub_hot;
         if !on_page && !self.on_sound_slot() {
             return None;
@@ -424,7 +478,9 @@ impl App {
 
     fn draw(&mut self) {
         let hot_slot = self.hot.and_then(|i| self.slots.get(i));
-        let status = self.volume_text().or_else(|| self.radio_text());
+        let status = (self.volume_text())
+            .or_else(|| self.radio_text())
+            .or_else(|| self.light_text());
         let hub = match (&self.message, hot_slot) {
             (Some(m), _) => m.as_str(),
             _ if status.is_some() => status.as_deref().unwrap_or_default(),
@@ -584,6 +640,13 @@ impl App {
             }
             // A press during the restart changes nothing.
             Target::Do(Action::RestartExplorer) => self.message = message,
+            Target::Do(action @ (Action::BrightnessUp | Action::BrightnessDown)) => {
+                // The hub shows the value, also when a digit was pressed.
+                self.hot = Some(i);
+                self.hub_hot = false;
+                self.shine(brightness::Order::Step(action == Action::BrightnessUp));
+                self.draw();
+            }
             Target::Do(Action::VolumeUp) => self.sound(Order::Step(true)),
             Target::Do(Action::VolumeDown) => self.sound(Order::Step(false)),
             Target::Do(Action::Mute) => self.sound(Order::ToggleMute),
@@ -970,6 +1033,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
         }
         WM_ACTION_DONE => with_app(App::launched),
         bluetooth::WM_RADIO => with_app(App::radio_answered),
+        brightness::WM_LIGHT => with_app(App::light_answered),
         audio::WM_AUDIO => with_app(App::sound_answered),
         icons::WM_ICON => with_app(App::icon_loaded),
         WM_CLIPBOARDUPDATE => {
@@ -1053,6 +1117,8 @@ fn start(config: Config, unreadable: bool) -> windows::core::Result<()> {
         audio: None,
         volume: None,
         devices: Vec::new(),
+        light: None,
+        brightness: None,
         scroll_rest: 0,
         radio: None,
         radio_switching: false,

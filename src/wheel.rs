@@ -11,7 +11,7 @@ use windows::Win32::Foundation::{POINT, RECT};
 /// Places of every wheel.
 const PLACES: usize = 8;
 /// Where the output devices start on the Sound page.
-pub const FIRST_OUTPUT: usize = 4;
+pub const FIRST_OUTPUT: usize = 6;
 
 // Logical pixels, from DESIGN.md.
 pub const PLATE_R: f32 = 170.0;
@@ -52,6 +52,8 @@ pub enum Action {
     SoundSettings,
     Bluetooth,
     BluetoothSettings,
+    BrightnessUp,
+    BrightnessDown,
     Google,
 }
 
@@ -106,7 +108,7 @@ pub fn slots(page: Page, c: &Config) -> Vec<Slot> {
             slot("Google", '\u{E721}', Do(Google)),
             slot("System", '\u{E770}', Open(Page::System)),
             slot("Settings", '\u{E713}', Do(Settings)),
-            slot("Sound", '\u{E767}', Open(Page::Sound)),
+            slot("Sound & Light", '\u{E767}', Open(Page::Sound)),
             slot("Tools", '\u{EC7A}', Open(Page::Tools)),
         ],
         Page::System => fill(vec![
@@ -143,11 +145,13 @@ pub fn slots(page: Page, c: &Config) -> Vec<Slot> {
             slot("Mute", '\u{E74F}', Do(Mute)),
             slot("Volume down", '\u{E993}', Do(VolumeDown)),
             slot("Bluetooth", '\u{E702}', Do(Bluetooth)),
+            slot("Brightness up", '\u{E706}', Do(BrightnessUp)),
+            slot("Brightness down", '\u{EC8A}', Do(BrightnessDown)),
         ]),
     }
 }
 
-/// The Sound page's places after the volume. Windows' own page shows the rest.
+/// The Sound page's last places. Windows' own page shows the rest.
 pub fn outputs(devices: &[Device]) -> Vec<Slot> {
     let places = PLACES - FIRST_OUTPUT;
     let mut shown: Vec<usize> = (0..devices.len()).collect();
@@ -297,11 +301,11 @@ mod tests {
         };
         let out = |i| Target::Do(Action::Output(i));
         let more = Target::Do(Action::SoundSettings);
-        assert_eq!(shown(0, 0), [Target::Empty; 4]);
-        assert_eq!(shown(2, 0)[..3], [out(0), out(1), Target::Empty]);
-        assert_eq!(shown(4, 3), [out(0), out(1), out(2), out(3)]);
-        assert_eq!(shown(5, 1), [out(0), out(1), out(2), more]);
-        assert_eq!(shown(9, 7), [out(0), out(1), out(7), more]);
+        assert_eq!(shown(0, 0), [Target::Empty; 2]);
+        assert_eq!(shown(1, 0), [out(0), Target::Empty]);
+        assert_eq!(shown(2, 1), [out(0), out(1)]);
+        assert_eq!(shown(3, 0), [out(0), more]);
+        assert_eq!(shown(9, 7), [out(7), more]);
         let icons: Vec<char> = outputs(&some(2, 1)).iter().map(|s| s.icon).collect();
         assert_eq!(icons[..2], ['\u{E7F5}', '\u{E73E}']);
     }
@@ -332,6 +336,8 @@ mod tests {
         );
         let sound = slots(Page::Sound, &c);
         assert_eq!(sound[3].target, Target::Do(Action::Bluetooth));
+        assert_eq!(sound[4].target, Target::Do(Action::BrightnessUp));
+        assert_eq!(sound[5].target, Target::Do(Action::BrightnessDown));
         let root = slots(Page::Root, &c);
         assert_eq!(root[3].target, Target::Do(Action::Google));
         assert_eq!(root[7].target, Target::Open(Page::Tools));
