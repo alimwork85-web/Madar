@@ -7,8 +7,8 @@ use crate::icons::Icon;
 use std::rc::Rc;
 use windows::Win32::Foundation::{POINT, RECT};
 
-/// Places of every wheel; a full folder has one more.
-const PLACES: usize = 7;
+/// Places of every wheel.
+const PLACES: usize = 8;
 
 // Logical pixels, from DESIGN.md.
 pub const PLATE_R: f32 = 170.0;
@@ -22,6 +22,7 @@ pub const GAP: f32 = 8.0;
 pub enum Page {
     Root,
     System,
+    MyApps,
     Apps,
     Sites,
 }
@@ -31,6 +32,7 @@ pub enum Action {
     Run,
     TaskManager,
     Settings,
+    MyApp(usize),
     App(usize),
     Site(usize),
     /// The first free place of a folder.
@@ -75,26 +77,33 @@ pub fn slots(page: Page, c: &Config) -> Vec<Slot> {
         items
     };
     let folder = |mut items: Vec<Slot>, add: &str| {
-        if items.len() <= PLACES {
+        if items.len() < PLACES {
             items.push(slot(add, '\u{E710}', Do(AddItems)));
         }
         fill(items)
     };
     match page {
         Page::Root => vec![
+            slot("My Apps", '\u{E734}', Open(Page::MyApps)),
+            slot("Apps", '\u{E71D}', Open(Page::Apps)),
+            slot("Sites", '\u{E774}', Open(Page::Sites)),
+            slot("Google", '\u{E721}', Disabled),
             slot("System", '\u{E770}', Open(Page::System)),
             slot("Settings", '\u{E713}', Do(Settings)),
             slot("Sound", '\u{E767}', Disabled),
             slot("Bluetooth", '\u{E702}', Disabled),
-            slot("Apps", '\u{E71D}', Open(Page::Apps)),
-            slot("Sites", '\u{E774}', Open(Page::Sites)),
-            slot("Google", '\u{E721}', Disabled),
         ],
         Page::System => fill(vec![
             slot("Run", '\u{E756}', Do(Run)),
             slot("Task Manager", '\u{E9D9}', Do(TaskManager)),
             slot("Maintenance", '\u{E90F}', Disabled),
         ]),
+        Page::MyApps => folder(
+            (c.my_apps.iter().enumerate())
+                .map(|(i, a)| slot(&a.label, '\u{ECAA}', Do(MyApp(i))))
+                .collect(),
+            "Add app",
+        ),
         Page::Apps => folder(
             (c.apps.iter().enumerate())
                 .map(|(i, a)| slot(&a.label, '\u{ECAA}', Do(App(i))))
@@ -211,8 +220,19 @@ mod tests {
     #[test]
     fn pages() {
         let mut c = Config::default();
-        assert_eq!(slots(Page::Root, &c).len(), 7);
-        assert_eq!(slots(Page::System, &c).len(), 7);
+        assert_eq!(slots(Page::Root, &c).len(), 8);
+        assert_eq!(slots(Page::System, &c).len(), 8);
+        assert_eq!(
+            slots(Page::Apps, &c)[0].target,
+            Target::Do(Action::AddItems)
+        );
+        c.my_apps.push(crate::config::App {
+            label: "مدار".into(),
+            path: "C:\\madar.exe".into(),
+            args: String::new(),
+        });
+        let mine = slots(Page::MyApps, &c);
+        assert_eq!(mine[0].target, Target::Do(Action::MyApp(0)));
         assert_eq!(
             slots(Page::Apps, &c)[0].target,
             Target::Do(Action::AddItems)
@@ -224,17 +244,18 @@ mod tests {
         });
         let sites = slots(Page::Sites, &c);
         let targets: Vec<_> = sites.iter().map(|s| s.target).collect();
-        let mut expected = [Target::Empty; 7];
+        let mut expected = [Target::Empty; 8];
         expected[0] = Target::Do(Action::Site(0));
         expected[1] = Target::Do(Action::AddItems);
         assert_eq!(targets, expected);
-        for (items, places, can_add) in [(6, 7, true), (7, 8, true), (8, 8, false)] {
+        for (items, can_add) in [(6, true), (7, true), (8, false)] {
             c.sites = vec![c.sites[0].clone(); items];
             let all = slots(Page::Sites, &c);
-            assert_eq!(all.len(), places);
+            assert_eq!(all.len(), 8);
             let add = Target::Do(Action::AddItems);
             assert_eq!(all.iter().any(|s| s.target == add), can_add);
-            assert!(all.iter().all(|s| s.target != Target::Empty));
+            let empty = all.iter().filter(|s| s.target == Target::Empty).count();
+            assert_eq!(empty, 8 - items - can_add as usize);
         }
     }
 }

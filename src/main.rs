@@ -145,7 +145,7 @@ impl App {
         self.summon = None;
         self.animation = (animate && animations_on()).then(Instant::now);
         self.go(Page::Root);
-        self.icons.request(&self.config.apps, self.scale);
+        self.icons.request(&self.config, self.scale);
         unsafe {
             let _ = SetWindowPos(
                 self.hwnd,
@@ -198,8 +198,8 @@ impl App {
         self.slots = wheel::slots(page, &self.config);
         self.hot = None;
         self.hub_hot = false;
-        if page == Page::Apps {
-            self.icons.request(&self.config.apps, self.scale);
+        if matches!(page, Page::MyApps | Page::Apps) {
+            self.icons.request(&self.config, self.scale);
             self.show_icons();
         }
         self.draw();
@@ -207,8 +207,12 @@ impl App {
 
     fn show_icons(&mut self) {
         for slot in &mut self.slots {
-            if let Target::Do(Action::App(i)) = slot.target {
-                let app = self.config.apps.get(i);
+            let app = match slot.target {
+                Target::Do(Action::MyApp(i)) => self.config.my_apps.get(i),
+                Target::Do(Action::App(i)) => self.config.apps.get(i),
+                _ => None,
+            };
+            if app.is_some() {
                 slot.image = app.and_then(|a| self.icons.get(&a.path));
             }
         }
@@ -216,7 +220,7 @@ impl App {
 
     fn icon_loaded(&mut self) {
         self.icons.collect();
-        if self.visible && self.page == Page::Apps {
+        if self.visible && matches!(self.page, Page::MyApps | Page::Apps) {
             self.show_icons();
             self.draw();
         }
@@ -245,6 +249,7 @@ impl App {
                 Some(Hit::Slot(i)) => Some(i),
                 _ => None,
             },
+            names: self.config.show_names,
             hub,
             hub_hot: self.hub_hot && self.message.is_none(),
             palette: palette(&self.config.theme),
@@ -349,8 +354,14 @@ impl App {
             }
             Target::Do(Action::AddItems) => {
                 self.close();
+                // Which list, counted from 1.
+                let list = match self.page {
+                    Page::MyApps => 1,
+                    Page::Apps => 2,
+                    _ => 3,
+                };
                 let _ = unsafe {
-                    PostMessageW(Some(self.hwnd), WM_OPEN_SETTINGS, WPARAM(0), LPARAM(0))
+                    PostMessageW(Some(self.hwnd), WM_OPEN_SETTINGS, WPARAM(list), LPARAM(0))
                 };
             }
             Target::Do(action) => self.launch(action),
@@ -504,12 +515,13 @@ fn warn(text: &str) {
     };
 }
 
-fn open_settings() {
+/// `list` is counted from 1; 0 keeps the one shown.
+fn open_settings(list: usize) {
     let host = settings::Host {
         get: current_config,
         apply: apply_config,
     };
-    if let Err(e) = settings::open(host) {
+    if let Err(e) = settings::open(host, settings::LISTS.get(list.wrapping_sub(1)).copied()) {
         warn(&format!("The settings window could not open: {e}"));
     }
 }
@@ -530,6 +542,10 @@ fn changed(old: &Config, new: &Config) -> Field {
         Field::Theme
     } else if old.autostart != new.autostart {
         Field::Autostart
+    } else if old.show_names != new.show_names {
+        Field::Names
+    } else if old.my_apps != new.my_apps {
+        Field::MyApps
     } else if old.apps != new.apps {
         Field::Apps
     } else {
@@ -619,7 +635,7 @@ fn tray_menu(hwnd: HWND, at: POINT) {
         Some(tray::Command::OpenWheel) => {
             with_app(|a| a.open(false));
         }
-        Some(tray::Command::Settings) => open_settings(),
+        Some(tray::Command::Settings) => open_settings(0),
         Some(tray::Command::TogglePause) => {
             let problems = with_app(App::toggle_pause).unwrap_or_default();
             if !problems.is_empty() {
@@ -709,7 +725,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
             }
         }),
         WM_OPEN_SETTINGS => {
-            open_settings();
+            open_settings(w.0);
             Some(())
         }
         WM_ACTION_DONE => with_app(App::launched),

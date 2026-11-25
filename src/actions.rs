@@ -55,8 +55,10 @@ fn plan(action: Action, c: &Config) -> Result<Plan, String> {
             args: String::new(),
             dir: None,
         }),
-        Action::App(i) => {
-            let app = c.apps.get(i).ok_or("Item not found")?;
+        Action::MyApp(i) | Action::App(i) => {
+            let mine = matches!(action, Action::MyApp(_));
+            let apps = if mine { &c.my_apps } else { &c.apps };
+            let app = apps.get(i).ok_or("Item not found")?;
             if app.args.contains('\0') {
                 return Err("Invalid arguments".to_string());
             }
@@ -296,6 +298,17 @@ mod tests {
             }
         );
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn my_apps_is_its_own_list() {
+        let mut c = config(vec![app("shell:AppsFolder\\other", "")], vec![]);
+        assert_eq!(err(Action::MyApp(0), &c), "Item not found");
+        c.my_apps = vec![app("shell:AppsFolder\\mine", "")];
+        let Plan::Shell { file, .. } = plan(Action::MyApp(0), &c).unwrap() else {
+            panic!("a program goes through the shell");
+        };
+        assert!(file.ends_with("mine"));
     }
 
     #[test]

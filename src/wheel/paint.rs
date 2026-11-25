@@ -104,6 +104,8 @@ pub struct Scene<'a> {
     pub slots: &'a [Slot],
     pub hot: Option<usize>,
     pub pressed: Option<usize>,
+    /// False: icons alone, without names and digits.
+    pub names: bool,
     pub hub: &'a str,
     pub hub_hot: bool,
     pub palette: Palette,
@@ -168,6 +170,7 @@ pub struct Painter {
     d2d: ID2D1Factory,
     write: IDWriteFactory,
     icon: IDWriteTextFormat,
+    big_icon: IDWriteTextFormat,
     label: IDWriteTextFormat,
     digit: IDWriteTextFormat,
     target: Option<ID2D1DCRenderTarget>,
@@ -193,7 +196,8 @@ impl Painter {
                 f.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER)?;
                 Ok(f)
             };
-            let icon = format(w!("Segoe Fluent Icons"), 22.0)?;
+            let icon = format(w!("Segoe Fluent Icons"), icons::WITH_NAME)?;
+            let big_icon = format(w!("Segoe Fluent Icons"), icons::ALONE)?;
             let label = format(w!("Segoe UI Variable Text"), 13.0)?;
             let digit = format(w!("Segoe UI Variable Text"), 12.0)?;
             let dots = write.CreateEllipsisTrimmingSign(&label)?;
@@ -206,6 +210,7 @@ impl Painter {
                 d2d,
                 write,
                 icon,
+                big_icon,
                 label,
                 digit,
                 target: None,
@@ -336,7 +341,11 @@ impl Painter {
                     rt.DrawGeometry(&self.slot_shape(i, n, 4.0)?, &on_accent, 2.0, None);
                 }
             }
-            self.slot_text(rt, slot, i, n, ink, fill)?;
+            if s.names {
+                self.slot_text(rt, slot, i, n, ink, fill)?;
+            } else {
+                self.slot_icon(rt, slot, i, n, ink, fill)?;
+            }
         }
         let hub = self.layout(s.hub, &self.label, 92.0, 70.0)?;
         unsafe {
@@ -348,6 +357,28 @@ impl Painter {
             let ink = if s.hub_hot { &on_accent } else { &text };
             rt.DrawTextLayout(pt!(-46.0, -35.0), &hub, ink, D2D1_DRAW_TEXT_OPTIONS_NONE);
         }
+        Ok(())
+    }
+
+    /// The icon alone, larger.
+    fn slot_icon(
+        &self,
+        rt: &ID2D1DCRenderTarget,
+        slot: &Slot,
+        i: usize,
+        n: usize,
+        ink: &ID2D1SolidColorBrush,
+        fill: u32,
+    ) -> Result<()> {
+        let a = std::f32::consts::TAU * i as f32 / n as f32;
+        let (x, y) = (ICON_R * a.sin(), -ICON_R * a.cos());
+        if let Some(image) = &slot.image {
+            return self.image(rt, image, x, y, icons::ALONE, fill);
+        }
+        let glyph = slot.icon.encode_utf8(&mut [0; 4]).to_string();
+        let icon = self.layout(&glyph, &self.big_icon, 40.0, 40.0)?;
+        let plain = D2D1_DRAW_TEXT_OPTIONS_NONE;
+        unsafe { rt.DrawTextLayout(pt!(x - 20.0, y - 20.0), &icon, ink, plain) };
         Ok(())
     }
 
@@ -378,7 +409,7 @@ impl Painter {
         unsafe {
             let plain = D2D1_DRAW_TEXT_OPTIONS_NONE;
             match &slot.image {
-                Some(image) => self.image(rt, image, x, top + 12.0, fill)?,
+                Some(image) => self.image(rt, image, x, top + 12.0, icons::WITH_NAME, fill)?,
                 None => rt.DrawTextLayout(pt!(x - 15.0, top), &icon, ink, plain),
             }
             rt.DrawTextLayout(pt!(x + 15.0, top), &digit, ink, plain);
@@ -396,9 +427,10 @@ impl Painter {
         image: &icons::Icon,
         x: f32,
         y: f32,
+        size: f32,
         fill: u32,
     ) -> Result<()> {
-        let half = icons::SIZE_LOGICAL / 2.0;
+        let half = size / 2.0;
         let mut m = D2D1_DRAWING_STATE_DESCRIPTION::default().transform;
         unsafe { rt.GetTransform(&mut m) };
         // Whole device pixels, so that the icon stays sharp.

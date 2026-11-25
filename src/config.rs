@@ -1,7 +1,7 @@
 //! Settings file (`config.json`): parse, validate, load and save.
 //!
 //! JSON shape: a single object with `hotkey`, `mouse`, `theme`, `autostart`,
-//! `apps` and `sites`. Unknown keys are ignored; missing keys take the default.
+//! `show_names`, `my_apps`, `apps` and `sites`. Unknown keys are ignored; missing keys take the default.
 
 use serde_json::{Map, Value};
 use std::io::{Read, Write};
@@ -53,6 +53,9 @@ pub struct Config {
     pub mouse: Mouse,
     pub theme: String,
     pub autostart: bool,
+    /// False: the wheel shows icons only.
+    pub show_names: bool,
+    pub my_apps: Vec<App>,
     pub apps: Vec<App>,
     pub sites: Vec<Site>,
 }
@@ -64,6 +67,8 @@ impl Default for Config {
             mouse: Mouse::Back,
             theme: DEFAULT_THEME.to_string(),
             autostart: false,
+            show_names: true,
+            my_apps: Vec::new(),
             apps: Vec::new(),
             sites: Vec::new(),
         }
@@ -132,8 +137,16 @@ pub fn parse(text: &str) -> Result<Config, String> {
             .as_bool()
             .ok_or_else(|| "autostart must be a boolean".to_string())?;
     }
+    if let Some(v) = obj.get("show_names") {
+        c.show_names = v
+            .as_bool()
+            .ok_or_else(|| "show_names must be a boolean".to_string())?;
+    }
+    if let Some(v) = obj.get("my_apps") {
+        c.my_apps = parse_apps(v, "my_apps")?;
+    }
     if let Some(v) = obj.get("apps") {
-        c.apps = parse_apps(v)?;
+        c.apps = parse_apps(v, "apps")?;
     }
     if let Some(v) = obj.get("sites") {
         c.sites = parse_sites(v)?;
@@ -153,35 +166,35 @@ fn parse_mouse(v: &Value) -> Result<Mouse, String> {
     }
 }
 
-fn parse_apps(v: &Value) -> Result<Vec<App>, String> {
+fn parse_apps(v: &Value, field: &str) -> Result<Vec<App>, String> {
     let arr = v
         .as_array()
-        .ok_or_else(|| "apps must be an array".to_string())?;
+        .ok_or_else(|| format!("{field} must be an array"))?;
     if arr.len() > MAX_ITEMS {
-        return Err(format!("apps: at most {MAX_ITEMS} are allowed"));
+        return Err(format!("{field}: at most {MAX_ITEMS} are allowed"));
     }
     let mut out = Vec::with_capacity(arr.len());
     for (i, item) in arr.iter().enumerate() {
         let o = item
             .as_object()
-            .ok_or_else(|| format!("apps[{i}] must be an object"))?;
+            .ok_or_else(|| format!("{field}[{i}] must be an object"))?;
         let label = match o.get("label") {
-            Some(v) => as_str(v, &format!("apps[{i}].label"))?.to_string(),
+            Some(v) => as_str(v, &format!("{field}[{i}].label"))?.to_string(),
             None => String::new(),
         };
         let path = match o.get("path") {
-            Some(v) => as_str(v, &format!("apps[{i}].path"))?.to_string(),
+            Some(v) => as_str(v, &format!("{field}[{i}].path"))?.to_string(),
             None => String::new(),
         };
         let args = match o.get("args") {
-            Some(v) => as_str(v, &format!("apps[{i}].args"))?.to_string(),
+            Some(v) => as_str(v, &format!("{field}[{i}].args"))?.to_string(),
             None => String::new(),
         };
         if label.is_empty() {
-            return Err(format!("apps[{i}].label is empty"));
+            return Err(format!("{field}[{i}].label is empty"));
         }
         if path.is_empty() {
-            return Err(format!("apps[{i}].path is empty"));
+            return Err(format!("{field}[{i}].path is empty"));
         }
         out.push(App { label, path, args });
     }
@@ -234,17 +247,16 @@ fn as_str<'a>(v: &'a Value, field: &str) -> Result<&'a str, String> {
 }
 
 fn to_value(c: &Config) -> Value {
-    let apps = c
-        .apps
-        .iter()
-        .map(|a| {
+    let apps = |apps: &[App]| -> Vec<Value> {
+        let item = |a: &App| {
             let mut m = Map::new();
             m.insert("label".into(), Value::String(a.label.clone()));
             m.insert("path".into(), Value::String(a.path.clone()));
             m.insert("args".into(), Value::String(a.args.clone()));
             Value::Object(m)
-        })
-        .collect();
+        };
+        apps.iter().map(item).collect()
+    };
     let sites = c
         .sites
         .iter()
@@ -268,7 +280,9 @@ fn to_value(c: &Config) -> Value {
     root.insert("mouse".into(), Value::String(c.mouse.as_str().into()));
     root.insert("theme".into(), Value::String(c.theme.clone()));
     root.insert("autostart".into(), Value::Bool(c.autostart));
-    root.insert("apps".into(), Value::Array(apps));
+    root.insert("show_names".into(), Value::Bool(c.show_names));
+    root.insert("my_apps".into(), Value::Array(apps(&c.my_apps)));
+    root.insert("apps".into(), Value::Array(apps(&c.apps)));
     root.insert("sites".into(), Value::Array(sites));
     Value::Object(root)
 }
@@ -381,6 +395,12 @@ mod tests {
             mouse: Mouse::CtrlMiddle,
             theme: "Ember".to_string(),
             autostart: true,
+            show_names: false,
+            my_apps: vec![App {
+                label: "مدار".to_string(),
+                path: r"C:\Madar\madar.exe".to_string(),
+                args: String::new(),
+            }],
             apps: vec![
                 App {
                     label: "تحميل \"المستندات\"".to_string(),
@@ -415,7 +435,8 @@ mod tests {
         assert_eq!(c.mouse, Mouse::Back);
         assert_eq!(c.theme, "Midnight");
         assert!(!c.autostart);
-        assert!(c.apps.is_empty() && c.sites.is_empty());
+        assert!(c.my_apps.is_empty() && c.apps.is_empty() && c.sites.is_empty());
+        assert!(c.show_names);
         assert_eq!(THEMES.len(), 8);
         assert_eq!(THEMES[1], "Midnight");
     }
@@ -540,6 +561,12 @@ mod tests {
         assert!(parse(r#"{"apps":[{"label":"a"}]}"#).is_err());
         assert!(parse(r#"{"sites":[{"label":"","url":"https://a.b"}]}"#).is_err());
         assert!(parse(r#"{"apps":[7]}"#).is_err());
+        assert!(
+            parse(r#"{"my_apps":[7]}"#)
+                .unwrap_err()
+                .contains("my_apps[0]")
+        );
+        assert!(parse(r#"{"show_names":1}"#).is_err());
         assert!(parse(r#"{"sites":[7]}"#).is_err());
     }
 

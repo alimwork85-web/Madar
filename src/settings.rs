@@ -33,6 +33,8 @@ pub enum Field {
     Mouse,
     Theme,
     Autostart,
+    Names,
+    MyApps,
     Apps,
     Sites,
 }
@@ -44,8 +46,9 @@ impl Field {
             Self::Mouse => 1,
             Self::Theme => 2,
             Self::Autostart => 3,
-            Self::Apps => 4,
-            Self::Sites => 5,
+            Self::Names => 4,
+            // One list is shown at a time.
+            Self::MyApps | Self::Apps | Self::Sites => 5,
         }
     }
 }
@@ -78,7 +81,7 @@ const ROW: i32 = 36;
 const LABEL: i32 = 110;
 const CTL_H: i32 = 24;
 const COMBO_H: i32 = 200;
-const BTN_W: i32 = 96;
+const BTN_W: i32 = 112;
 const BTN_H: i32 = 28;
 const GAP: i32 = 4;
 const ERR_H: i32 = 20;
@@ -100,34 +103,31 @@ const ID_HOTKEY: u16 = 100;
 const ID_MOUSE: u16 = 101;
 const ID_THEME: u16 = 102;
 const ID_AUTOSTART: u16 = 103;
-const APP_ID: u16 = 110;
-const SITE_ID: u16 = 120;
-const APP_BUTTONS: u16 = 200;
-const ID_APP_START: u16 = 205;
-const SITE_BUTTONS: u16 = 210;
-const APP_BUTTON_TEXT: [&str; 5] = [
-    "&Add app",
-    "&Edit app",
-    "&Remove app",
+const ID_NAMES: u16 = 104;
+const TAB_ID: u16 = 110;
+const TAB_TEXT: [&str; 3] = ["M&y Apps", "A&pps", "S&ites"];
+const ITEMS_ID: u16 = 120;
+const BUTTONS: u16 = 200;
+const BUTTON_TEXT: [&str; 7] = [
+    "&Add",
+    "Add &from Start",
+    "&Edit",
+    "&Remove",
     "Move &up",
     "Move &down",
-];
-const SITE_BUTTON_TEXT: [&str; 5] = [
-    "Add &site",
-    "Edit si&te",
-    "Rem&ove site",
-    "Mo&ve up",
-    "Move dow&n",
+    "Move &to Apps",
 ];
 const ID_BROWSE: u16 = 300;
 const ID_START: u16 = 301;
 const SUBCLASS: usize = 1;
 
 const ADD: usize = 0;
-const EDIT: usize = 1;
-const REMOVE: usize = 2;
-const UP: usize = 3;
-const DOWN: usize = 4;
+const START: usize = 1;
+const EDIT: usize = 2;
+const REMOVE: usize = 3;
+const UP: usize = 4;
+const DOWN: usize = 5;
+const MOVE: usize = 6;
 
 /// Combo order from DESIGN.md, which is also `Mouse` order.
 const MOUSE_ITEMS: [Mouse; 4] = [Mouse::None, Mouse::Back, Mouse::Forward, Mouse::CtrlMiddle];
@@ -167,13 +167,11 @@ struct Widgets {
     mouse: HWND,
     theme: HWND,
     autostart: HWND,
-    apps: HWND,
-    sites: HWND,
-    app_btn: [HWND; 5],
-    /// Below Add app.
-    app_start: HWND,
-    site_btn: [HWND; 5],
-    label: [HWND; 5],
+    names: HWND,
+    tabs: [HWND; 3],
+    items: HWND,
+    buttons: [HWND; 7],
+    label: [HWND; 4],
     error: [HWND; 6],
 }
 
@@ -181,11 +179,10 @@ impl Widgets {
     /// Every control, for one font pass.
     fn all(self) -> Vec<HWND> {
         let mut v = vec![self.hotkey, self.mouse, self.theme, self.autostart];
-        v.push(self.apps);
-        v.push(self.sites);
-        v.extend(self.app_btn);
-        v.push(self.app_start);
-        v.extend(self.site_btn);
+        v.push(self.names);
+        v.extend(self.tabs);
+        v.push(self.items);
+        v.extend(self.buttons);
         v.extend(self.label);
         v.extend(self.error);
         v.retain(|h| !h.is_invalid());
@@ -196,6 +193,8 @@ impl Widgets {
 struct State {
     hwnd: HWND,
     host: Host,
+    /// The list on screen.
+    list: List,
     dpi: u32,
     font: HFONT,
     big: HICON,
@@ -233,14 +232,19 @@ fn with_form<R>(f: impl FnOnce(&mut Form) -> R) -> Option<R> {
 }
 
 /// Opens the window, or brings the open one to the front.
-pub fn open(host: Host) -> windows::core::Result<()> {
+pub fn open(host: Host, list: Option<List>) -> windows::core::Result<()> {
     if let Some(hwnd) = with_state(|s| s.hwnd) {
         unsafe {
             if IsIconic(hwnd).as_bool() {
                 let _ = ShowWindow(hwnd, SW_RESTORE);
             }
             // An open Add or Edit window comes first.
-            let _ = SetForegroundWindow(GetLastActivePopup(hwnd));
+            let popup = GetLastActivePopup(hwnd);
+            let _ = SetForegroundWindow(popup);
+            // An open Add or Edit window belongs to the list that shows now.
+            if let Some(list) = list.filter(|_| popup == hwnd) {
+                show_list(list);
+            }
         }
         return Ok(());
     }
@@ -292,6 +296,9 @@ pub fn open(host: Host) -> windows::core::Result<()> {
         HOST.with(|c| c.set(None));
 
         let hwnd = created?;
+        if let Some(list) = list {
+            show_list(list);
+        }
         let _ = ShowWindow(hwnd, SW_SHOW);
         let _ = SetForegroundWindow(hwnd);
         if let Some(field) = with_state(|s| s.w.hotkey) {
@@ -310,8 +317,7 @@ pub fn translate(msg: &MSG) -> bool {
     let Widgets {
         mouse,
         theme,
-        apps,
-        sites,
+        items,
         ..
     } = w;
     if msg.message == WM_KEYDOWN {
@@ -327,21 +333,14 @@ pub fn translate(msg: &MSG) -> bool {
                 return true;
             }
         }
-        let list = if msg.hwnd == apps {
-            Some(List::Apps)
-        } else if msg.hwnd == sites {
-            Some(List::Sites)
-        } else {
-            None
-        };
         let action = match vk {
             vk if vk == VK_INSERT.0 as u32 => Some(ADD),
             vk if vk == VK_DELETE.0 as u32 => Some(REMOVE),
             vk if vk == VK_RETURN.0 as u32 => Some(EDIT),
             _ => None,
         };
-        if let (Some(list), Some(action)) = (list, action) {
-            item(list, action);
+        if let Some(action) = action.filter(|_| msg.hwnd == items) {
+            item(action);
             return true;
         }
     }
@@ -609,7 +608,7 @@ fn setup(hwnd: HWND) -> bool {
     let (big, small, owned) = load_icons();
 
     let w = unsafe { build_controls(hwnd) };
-    if w.all().len() != 28 {
+    if w.all().len() != 26 {
         free(w, font, big, small, owned);
         return false;
     }
@@ -618,6 +617,7 @@ fn setup(hwnd: HWND) -> bool {
         *slot.borrow_mut() = Some(State {
             hwnd,
             host,
+            list: List::MyApps,
             dpi,
             font,
             big,
@@ -648,7 +648,7 @@ fn setup(hwnd: HWND) -> bool {
     apply_font(font);
     use_dark_title(hwnd);
     fill_combos(w);
-    refresh((None, None));
+    refresh(None);
     true
 }
 
@@ -675,7 +675,6 @@ unsafe fn build_controls(hwnd: HWND) -> Widgets {
         make(hwnd, w!("BUTTON"), text, button_style(default), id)
     };
     let combo = |id: u16| unsafe { make(hwnd, w!("COMBOBOX"), "", combo_style(), id) };
-    let list = |id: u16| unsafe { make(hwnd, w!("LISTBOX"), "", list_style(), id) };
 
     // Each label is created right before its control: that is what makes the
     // access key work and keeps the tab order the reading order.
@@ -700,19 +699,21 @@ unsafe fn build_controls(hwnd: HWND) -> Widgets {
         )
     };
     w.error[3] = error(3);
-    w.label[3] = label("A&pps");
-    w.apps = list(APP_ID);
-    for (i, text) in APP_BUTTON_TEXT.iter().enumerate() {
-        w.app_btn[i] = button(text, APP_BUTTONS + i as u16, false);
-        if i == ADD {
-            w.app_start = button("Add &from Start", ID_APP_START, false);
-        }
-    }
+    w.names = unsafe { make(hwnd, w!("BUTTON"), "Show &names", check, ID_NAMES) };
     w.error[4] = error(4);
-    w.label[4] = label("S&ites");
-    w.sites = list(SITE_ID);
-    for (i, text) in SITE_BUTTON_TEXT.iter().enumerate() {
-        w.site_btn[i] = button(text, SITE_BUTTONS + i as u16, false);
+    w.label[3] = label("Lists");
+    for (i, text) in TAB_TEXT.iter().enumerate() {
+        // One group: Tab reaches the pressed one, the arrows switch.
+        let radio = BS_AUTORADIOBUTTON | BS_PUSHLIKE;
+        let mut style = WS_CHILD | WS_VISIBLE | WINDOW_STYLE(radio as u32);
+        if i == 0 {
+            style |= WS_GROUP | WS_TABSTOP;
+        }
+        w.tabs[i] = unsafe { make(hwnd, w!("BUTTON"), text, style, TAB_ID + i as u16) };
+    }
+    w.items = unsafe { make(hwnd, w!("LISTBOX"), "", list_style() | WS_GROUP, ITEMS_ID) };
+    for (i, text) in BUTTON_TEXT.iter().enumerate() {
+        w.buttons[i] = button(text, BUTTONS + i as u16, false);
     }
     w.error[5] = error(5);
     w
@@ -836,27 +837,23 @@ fn command(id: u16, code: u16) {
             let on = send(h, BM_GETCHECK, 0, 0) == BST_CHECKED.0 as isize;
             apply(Field::Autostart, current_sel(), |c| c.autostart = on);
         }
-        APP_ID | SITE_ID if code == LBN_SELCHANGE as u16 => update_buttons(),
-        APP_ID if code == LBN_DBLCLK as u16 => item(List::Apps, EDIT),
-        SITE_ID if code == LBN_DBLCLK as u16 => item(List::Sites, EDIT),
-        ID_APP_START if code == BN_CLICKED as u16 => add_from_start(),
-        _ => {
-            if code == BN_CLICKED as u16
-                && let Some((list, action)) = button_action(id)
-            {
-                item(list, action);
+        ID_NAMES if code == BN_CLICKED as u16 => {
+            let Some(w) = with_state(|s| s.w) else {
+                return;
+            };
+            let on = send(w.names, BM_GETCHECK, 0, 0) == BST_CHECKED.0 as isize;
+            apply(Field::Names, list_sel(w.items), |c| c.show_names = on);
+        }
+        ITEMS_ID if code == LBN_SELCHANGE as u16 => update_buttons(),
+        ITEMS_ID if code == LBN_DBLCLK as u16 => item(EDIT),
+        id if code == BN_CLICKED as u16 => {
+            if let Some(&list) = LISTS.get(id.wrapping_sub(TAB_ID) as usize) {
+                show_list(list);
+            } else if (BUTTONS..BUTTONS + 7).contains(&id) {
+                item((id - BUTTONS) as usize);
             }
         }
-    }
-}
-
-fn button_action(id: u16) -> Option<(List, usize)> {
-    if (APP_BUTTONS..APP_BUTTONS + 5).contains(&id) {
-        Some((List::Apps, (id - APP_BUTTONS) as usize))
-    } else if (SITE_BUTTONS..SITE_BUTTONS + 5).contains(&id) {
-        Some((List::Sites, (id - SITE_BUTTONS) as usize))
-    } else {
-        None
+        _ => {}
     }
 }
 
@@ -881,11 +878,8 @@ fn list_sel(h: HWND) -> Option<usize> {
     (i >= 0).then_some(i as usize)
 }
 
-fn current_sel() -> (Option<usize>, Option<usize>) {
-    let Some(w) = with_state(|s| s.w) else {
-        return (None, None);
-    };
-    (list_sel(w.apps), list_sel(w.sites))
+fn current_sel() -> Option<usize> {
+    list_sel(with_state(|s| s.w)?.items)
 }
 
 struct Geometry {
@@ -966,87 +960,76 @@ fn arrange(s: &State, width: i32, height: i32) -> Vec<(HWND, i32, i32, i32, i32)
         y += g.row + if shown { g.err } else { 0 };
     }
 
-    out.push((s.w.autostart, xc, y, cw, g.ctl));
-    let shown = s.errors[3].is_some();
-    out.push((
-        s.w.error[3],
-        xc,
-        y + g.ctl + 2,
-        cw,
-        if shown { g.err } else { 0 },
-    ));
-    y += g.row + if shown { g.err } else { 0 };
-
-    let avail = (height - g.margin - y).max(0);
-    // Apps has six buttons, so it may need more than half.
-    let apps_h = (avail / 2).max(6 * (g.btn_h + g.gap) + g.gap);
-    for list in [List::Apps, List::Sites] {
-        let (top, section) = match list {
-            List::Apps => (y, apps_h),
-            List::Sites => (y + apps_h, avail - apps_h),
-        };
-        let shown = s.errors[list.field().slot()].is_some();
-        let list_h = (section - px(8, s.dpi) - if shown { g.err } else { 0 }).max(px(40, s.dpi));
-        let bx = width - g.margin - g.btn_w;
-        let lw = (bx - g.gap - xc).max(px(40, s.dpi));
-        let (label, box_, buttons) = match list {
-            List::Apps => (s.w.label[3], s.w.apps, s.w.app_btn),
-            List::Sites => (s.w.label[4], s.w.sites, s.w.site_btn),
-        };
-        out.push((label, xl, top, g.label, g.ctl));
-        out.push((box_, xc, top, lw, list_h));
-        for (i, button) in buttons.into_iter().enumerate() {
-            let row = if list == List::Apps && i > ADD {
-                i + 1
-            } else {
-                i
-            };
-            let by = top + row as i32 * (g.btn_h + g.gap);
-            out.push((button, bx, by, g.btn_w, g.btn_h));
-        }
-        if list == List::Apps {
-            let by = top + g.btn_h + g.gap;
-            out.push((s.w.app_start, bx, by, g.btn_w, g.btn_h));
-        }
+    for (control, i) in [(s.w.autostart, 3), (s.w.names, 4)] {
+        out.push((control, xc, y, cw, g.ctl));
+        let shown = s.errors[i].is_some();
         out.push((
-            s.w.error[list.field().slot()],
+            s.w.error[i],
             xc,
-            top + list_h + g.gap,
-            lw,
+            y + g.ctl + 2,
+            cw,
             if shown { g.err } else { 0 },
         ));
+        y += g.row + if shown { g.err } else { 0 };
     }
+
+    out.push((s.w.label[3], xl, y, g.label, g.btn_h));
+    let tab_w = (cw - 2 * g.gap) / 3;
+    for (i, tab) in s.w.tabs.into_iter().enumerate() {
+        out.push((tab, xc + i as i32 * (tab_w + g.gap), y, tab_w, g.btn_h));
+    }
+    y += g.row;
+
+    let shown = s.errors[5].is_some();
+    let err_h = if shown { g.err + g.gap } else { 0 };
+    let bx = width - g.margin - g.btn_w;
+    let lw = (bx - g.gap - xc).max(px(40, s.dpi));
+    let list_h = (height - g.margin - y - err_h).max(px(40, s.dpi));
+    out.push((s.w.items, xc, y, lw, list_h));
+    for (i, button) in s.w.buttons.into_iter().enumerate() {
+        let by = y + i as i32 * (g.btn_h + g.gap);
+        out.push((button, bx, by, g.btn_w, g.btn_h));
+    }
+    out.push((
+        s.w.error[5],
+        xc,
+        y + list_h + g.gap,
+        lw,
+        if shown { g.err } else { 0 },
+    ));
     out
 }
 
 fn update_buttons() {
-    let Some((w, host)) = with_state(|s| (s.w, s.host)) else {
+    let Some((w, host, list)) = with_state(|s| (s.w, s.host, s.list)) else {
         return;
     };
     let c = (host.get)();
-    let (app_sel, site_sel) = (list_sel(w.apps), list_sel(w.sites));
-    set_buttons(w.app_btn, c.apps.len(), app_sel, w.apps);
-    let _ = unsafe { EnableWindow(w.app_start, c.apps.len() < MAX_ITEMS) };
-    set_buttons(w.site_btn, c.sites.len(), site_sel, w.sites);
-}
-
-fn set_buttons(buttons: [HWND; 5], len: usize, sel: Option<usize>, list: HWND) {
-    let on = [
-        len < MAX_ITEMS,
-        sel.is_some(),
-        sel.is_some(),
-        matches!(sel, Some(i) if i > 0),
-        matches!(sel, Some(i) if i + 1 < len),
-    ];
-    for (button, enabled) in buttons.into_iter().zip(on) {
+    let on = enabled(list, &c, list_sel(w.items));
+    for (button, enabled) in w.buttons.into_iter().zip(on) {
         unsafe {
             let _ = EnableWindow(button, enabled);
             // Focus must never sit on a control that cannot act.
             if !enabled && GetFocus() == button {
-                let _ = SetFocus(Some(list));
+                let _ = SetFocus(Some(w.items));
             }
         }
     }
+}
+
+/// Which buttons can act, in button order.
+fn enabled(list: List, c: &Config, sel: Option<usize>) -> [bool; 7] {
+    let len = list.len(c);
+    let room = len < MAX_ITEMS;
+    [
+        room,
+        room && list != List::Sites,
+        sel.is_some(),
+        sel.is_some(),
+        up_index(sel).is_some(),
+        down_index(sel, len).is_some(),
+        sel.is_some() && list.other().is_some_and(|o| o.len(c) < MAX_ITEMS),
+    ]
 }
 
 fn errors_text() {
@@ -1061,8 +1044,8 @@ fn errors_text() {
 }
 
 /// Rewrites every control from `(host.get)()`, then lays out and refocuses.
-fn refresh(sel: (Option<usize>, Option<usize>)) {
-    let Some((w, host)) = with_state(|s| (s.w, s.host)) else {
+fn refresh(sel: Option<usize>) {
+    let Some((w, host, list)) = with_state(|s| (s.w, s.host, s.list)) else {
         return;
     };
     let c = (host.get)();
@@ -1071,20 +1054,19 @@ fn refresh(sel: (Option<usize>, Option<usize>)) {
     set_text(w.hotkey, &c.hotkey);
     send(w.mouse, CB_SETCURSEL, mouse_index(c.mouse), 0);
     send(w.theme, CB_SETCURSEL, theme_index(&c.theme), 0);
-    send(
-        w.autostart,
-        BM_SETCHECK,
-        if c.autostart {
-            BST_CHECKED.0 as usize
-        } else {
-            BST_UNCHECKED.0 as usize
-        },
-        0,
-    );
-    fill(w.apps, c.apps.iter().map(|a| a.label.as_str()));
-    fill(w.sites, c.sites.iter().map(|s| s.label.as_str()));
-    select(w.apps, sel.0, c.apps.len());
-    select(w.sites, sel.1, c.sites.len());
+    let check = |h: HWND, on: bool| {
+        let state = if on { BST_CHECKED } else { BST_UNCHECKED };
+        send(h, BM_SETCHECK, state.0 as usize, 0);
+    };
+    check(w.autostart, c.autostart);
+    check(w.names, c.show_names);
+    for (tab, l) in w.tabs.into_iter().zip(LISTS) {
+        check(tab, l == list);
+    }
+    set_text(w.buttons[MOVE], list.move_text());
+    let labels = list.labels(&c);
+    fill(w.items, labels.iter());
+    select(w.items, sel, labels.len());
 
     with_state(|s| s.busy = s.busy.saturating_sub(1));
     errors_text();
@@ -1109,7 +1091,7 @@ fn select(list: HWND, sel: Option<usize>, len: usize) {
 }
 
 /// Applies one change to the config from the host, then shows what happened.
-fn apply(field: Field, sel: (Option<usize>, Option<usize>), change: impl FnOnce(&mut Config)) {
+fn apply(field: Field, sel: Option<usize>, change: impl FnOnce(&mut Config)) {
     let Some(host) = with_state(|s| s.host) else {
         return;
     };
@@ -1123,232 +1105,226 @@ fn apply(field: Field, sel: (Option<usize>, Option<usize>), change: impl FnOnce(
     refresh(sel);
 }
 
-fn item(list: List, action: usize) {
-    match action {
-        ADD => add(list),
-        EDIT => edit(list),
-        REMOVE => remove(list),
-        UP => shift(list, true),
-        DOWN => shift(list, false),
-        _ => {}
+fn show_list(list: List) {
+    if with_state(|s| s.list) == Some(list) {
+        return;
     }
-    // Add, Edit and Remove showed another window; focus returns to the list.
-    if action <= REMOVE
-        && let Some(w) = with_state(|s| s.w)
-    {
-        let target = if list == List::Apps { w.apps } else { w.sites };
-        let _ = unsafe { SetFocus(Some(target)) };
-    }
+    with_state(|s| {
+        s.list = list;
+        // It belonged to the other list.
+        s.errors[list.field().slot()] = None;
+    });
+    refresh(None);
 }
 
-fn add(list: List) {
-    let (Some(owner), Some(host)) = (with_state(|s| s.hwnd), with_state(|s| s.host)) else {
+fn item(action: usize) {
+    let Some((owner, host, list, w)) = with_state(|s| (s.hwnd, s.host, s.list, s.w)) else {
         return;
     };
     let c = (host.get)();
-    let len = list.len(&c);
-    if len >= MAX_ITEMS {
+    let sel = list_sel(w.items);
+    // The list's own keys come here too.
+    if !enabled(list, &c, sel).get(action).is_some_and(|&on| on) {
         return;
     }
-    let Some(made) = dialog(owner, list, None, false) else {
-        return;
-    };
-    let (app_sel, site_sel) = current_sel();
-    let sel = match list {
-        List::Apps => (Some(len), site_sel),
-        List::Sites => (app_sel, Some(len)),
-    };
-    apply(list.field(), sel, |c| match made {
-        Made::App(app) => c.apps.push(app),
-        Made::Site(site) => c.sites.push(site),
-    });
+    match action {
+        ADD => {
+            if let Some(made) = dialog(owner, list, None, false) {
+                let end = list.len(&(host.get)());
+                apply(list.field(), Some(end), |c| list.put(c, end, made));
+            }
+        }
+        START => add_from_start(owner, host, list),
+        EDIT => {
+            let Some(index) = sel else { return };
+            let texts = list.texts(&c, index);
+            if let Some(made) = dialog(owner, list, texts, true) {
+                apply(list.field(), sel, |c| list.put(c, index, made));
+            }
+        }
+        REMOVE => {
+            let Some(index) = sel else { return };
+            let Some(label) = list.labels(&c).into_iter().nth(index) else {
+                return;
+            };
+            let text = HSTRING::from(format!("Remove \"{label}\"?"));
+            let style = MB_YESNO | MB_DEFBUTTON2;
+            if unsafe { MessageBoxW(Some(owner), &text, w!("Madar"), style) } == IDYES {
+                let after = after_remove(index, list.len(&c));
+                apply(list.field(), after, |c| {
+                    list.take(c, index);
+                });
+            }
+        }
+        UP | DOWN => {
+            let to = if action == UP {
+                up_index(sel)
+            } else {
+                down_index(sel, list.len(&c))
+            };
+            if let (Some(from), Some(to)) = (sel, to) {
+                apply(list.field(), Some(to), |c| list.swap(c, from, to));
+            }
+        }
+        MOVE => {
+            if let (Some(index), Some(other)) = (sel, list.other()) {
+                let after = after_remove(index, list.len(&c));
+                apply(list.field(), after, |c| {
+                    if let Some(made) = list.take(c, index) {
+                        let end = other.len(c);
+                        other.put(c, end, made);
+                    }
+                });
+            }
+        }
+        _ => {}
+    }
+    // These showed another window; focus returns to the list.
+    if matches!(action, ADD | EDIT | REMOVE) {
+        let _ = unsafe { SetFocus(Some(w.items)) };
+    }
 }
 
-fn add_from_start() {
-    let Some((owner, host, w)) = with_state(|s| (s.hwnd, s.host, s.w)) else {
-        return;
-    };
-    if (host.get)().apps.len() >= MAX_ITEMS {
-        return;
-    }
+fn add_from_start(owner: HWND, host: Host, list: List) {
+    let Some(w) = with_state(|s| s.w) else { return };
     if let Some(entry) = start_menu::pick(owner) {
-        let len = (host.get)().apps.len();
-        let label = entry.name.chars().take(NAME_MAX).collect();
-        apply(Field::Apps, (Some(len), current_sel().1), |c| {
-            c.apps.push(App {
-                label,
-                path: entry.path,
-                args: String::new(),
-            })
+        let end = list.len(&(host.get)());
+        let app = App {
+            label: entry.name.chars().take(NAME_MAX).collect(),
+            path: entry.path,
+            args: String::new(),
+        };
+        apply(list.field(), Some(end), |c| {
+            list.put(c, end, Made::App(app))
         });
     }
     // Back on the button, so several programs can be added in a row.
-    let full = (host.get)().apps.len() >= MAX_ITEMS;
-    let _ = unsafe { SetFocus(Some(if full { w.apps } else { w.app_start })) };
+    let full = list.len(&(host.get)()) >= MAX_ITEMS;
+    let target = if full { w.items } else { w.buttons[START] };
+    let _ = unsafe { SetFocus(Some(target)) };
 }
 
-fn edit(list: List) {
-    let (Some(owner), Some(host)) = (with_state(|s| s.hwnd), with_state(|s| s.host)) else {
-        return;
-    };
-    let (app_sel, site_sel) = current_sel();
-    let index = match list {
-        List::Apps => app_sel,
-        List::Sites => site_sel,
-    };
-    let Some(index) = index else { return };
-    let c = (host.get)();
-    let texts = match list {
-        List::Apps => c
-            .apps
-            .get(index)
-            .map(|a| [a.label.clone(), a.path.clone(), a.args.clone()]),
-        List::Sites => c.sites.get(index).map(|s| {
-            [
-                s.label.clone(),
-                s.url.clone(),
-                s.browser.clone().unwrap_or_default(),
-            ]
-        }),
-    };
-    let Some(made) = dialog(owner, list, texts, true) else {
-        return;
-    };
-    let sel = match list {
-        List::Apps => (Some(index), site_sel),
-        List::Sites => (app_sel, Some(index)),
-    };
-    apply(list.field(), sel, |c| match made {
-        Made::App(app) => {
-            if let Some(slot) = c.apps.get_mut(index) {
-                *slot = app;
-            }
-        }
-        Made::Site(site) => {
-            if let Some(slot) = c.sites.get_mut(index) {
-                *slot = site;
-            }
-        }
-    });
-}
-
-fn remove(list: List) {
-    let Some(owner) = with_state(|s| s.hwnd) else {
-        return;
-    };
-    let Some(host) = with_state(|s| s.host) else {
-        return;
-    };
-    let (app_sel, site_sel) = current_sel();
-    let c = (host.get)();
-    let index = match list {
-        List::Apps => app_sel,
-        List::Sites => site_sel,
-    };
-    let Some(index) = index else { return };
-    let label = match list {
-        List::Apps => c.apps.get(index).map(|a| a.label.clone()),
-        List::Sites => c.sites.get(index).map(|s| s.label.clone()),
-    };
-    let Some(label) = label else { return };
-    let text = HSTRING::from(format!("Remove \"{label}\"?"));
-    let answer = unsafe { MessageBoxW(Some(owner), &text, w!("Madar"), MB_YESNO | MB_DEFBUTTON2) };
-    if answer != IDYES {
-        return;
-    }
-    let after = after_remove(index, list.len(&c));
-    let sel = match list {
-        List::Apps => (after, site_sel),
-        List::Sites => (app_sel, after),
-    };
-    apply(list.field(), sel, |c| {
-        if index < list.len(c) {
-            match list {
-                List::Apps => {
-                    c.apps.remove(index);
-                }
-                List::Sites => {
-                    c.sites.remove(index);
-                }
-            }
-        }
-    });
-}
-
-fn shift(list: List, up: bool) {
-    let Some(host) = with_state(|s| s.host) else {
-        return;
-    };
-    let (app_sel, site_sel) = current_sel();
-    let c = (host.get)();
-    let len = list.len(&c);
-    let sel = match list {
-        List::Apps => app_sel,
-        List::Sites => site_sel,
-    };
-    let target = if up {
-        up_index(sel)
-    } else {
-        down_index(sel, len)
-    };
-    let Some(to) = target else { return };
-    let from = if up { to + 1 } else { to - 1 };
-    let sel = match list {
-        List::Apps => (Some(to), site_sel),
-        List::Sites => (app_sel, Some(to)),
-    };
-    apply(list.field(), sel, |c| {
-        if from < len && to < len {
-            match list {
-                List::Apps => c.apps.swap(from, to),
-                List::Sites => c.sites.swap(from, to),
-            }
-        }
-    });
-}
-
-#[derive(Clone, Copy, PartialEq)]
-enum List {
+/// The list the window shows.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum List {
+    MyApps,
     Apps,
     Sites,
 }
 
+pub const LISTS: [List; 3] = [List::MyApps, List::Apps, List::Sites];
+
 impl List {
     fn field(self) -> Field {
         match self {
+            Self::MyApps => Field::MyApps,
             Self::Apps => Field::Apps,
             Self::Sites => Field::Sites,
         }
     }
 
+    fn labels(self, c: &Config) -> Vec<String> {
+        let names = |apps: &[App]| apps.iter().map(|a| a.label.clone()).collect();
+        match self {
+            Self::MyApps => names(&c.my_apps),
+            Self::Apps => names(&c.apps),
+            Self::Sites => c.sites.iter().map(|s| s.label.clone()).collect(),
+        }
+    }
+
     fn len(self, c: &Config) -> usize {
         match self {
+            Self::MyApps => c.my_apps.len(),
             Self::Apps => c.apps.len(),
             Self::Sites => c.sites.len(),
         }
     }
 
+    /// The fields of one item, for the Edit window.
+    fn texts(self, c: &Config, index: usize) -> Option<[String; 3]> {
+        let of = |a: &App| [a.label.clone(), a.path.clone(), a.args.clone()];
+        match self {
+            Self::MyApps => c.my_apps.get(index).map(of),
+            Self::Apps => c.apps.get(index).map(of),
+            Self::Sites => c.sites.get(index).map(|s| {
+                [
+                    s.label.clone(),
+                    s.url.clone(),
+                    s.browser.clone().unwrap_or_default(),
+                ]
+            }),
+        }
+    }
+
+    /// Replaces the item at `index`, or appends after the last one.
+    fn put(self, c: &mut Config, index: usize, made: Made) {
+        fn set<T>(items: &mut Vec<T>, index: usize, item: T) {
+            match items.get_mut(index) {
+                Some(slot) => *slot = item,
+                None => items.push(item),
+            }
+        }
+        match (self, made) {
+            (Self::MyApps, Made::App(a)) => set(&mut c.my_apps, index, a),
+            (Self::Apps, Made::App(a)) => set(&mut c.apps, index, a),
+            (Self::Sites, Made::Site(s)) => set(&mut c.sites, index, s),
+            // The Add window makes the kind its list holds.
+            _ => {}
+        }
+    }
+
+    fn take(self, c: &mut Config, index: usize) -> Option<Made> {
+        (index < self.len(c)).then(|| match self {
+            Self::MyApps => Made::App(c.my_apps.remove(index)),
+            Self::Apps => Made::App(c.apps.remove(index)),
+            Self::Sites => Made::Site(c.sites.remove(index)),
+        })
+    }
+
+    fn swap(self, c: &mut Config, a: usize, b: usize) {
+        if a.max(b) < self.len(c) {
+            match self {
+                Self::MyApps => c.my_apps.swap(a, b),
+                Self::Apps => c.apps.swap(a, b),
+                Self::Sites => c.sites.swap(a, b),
+            }
+        }
+    }
+
+    /// Where Move to sends an item.
+    fn other(self) -> Option<Self> {
+        match self {
+            Self::MyApps => Some(Self::Apps),
+            Self::Apps => Some(Self::MyApps),
+            Self::Sites => None,
+        }
+    }
+
+    fn move_text(self) -> &'static str {
+        match self {
+            Self::Apps => "Move &to My Apps",
+            _ => "Move &to Apps",
+        }
+    }
+
     fn title(self, editing: bool) -> &'static str {
         match (self, editing) {
-            (Self::Apps, false) => "Add app",
-            (Self::Apps, true) => "Edit app",
             (Self::Sites, false) => "Add site",
             (Self::Sites, true) => "Edit site",
+            (_, false) => "Add app",
+            (_, true) => "Edit app",
         }
     }
 
     /// The field that holds a program path.
     fn browse_row(self) -> usize {
-        match self {
-            Self::Apps => 1,
-            Self::Sites => 2,
-        }
+        if self == Self::Sites { 2 } else { 1 }
     }
 
     fn names(self) -> [&'static str; 3] {
         match self {
-            Self::Apps => ["&Name", "&Program", "A&rguments"],
             Self::Sites => ["&Name", "&Address", "Bro&wser"],
+            _ => ["&Name", "&Program", "A&rguments"],
         }
     }
 }
@@ -1943,7 +1919,7 @@ fn form_ok() {
     // A second OK must not leave the previous round's errors on screen.
     with_form(|f| f.errors = Default::default());
     let checked = match list {
-        List::Apps => check_app(&texts[0], &texts[1], &texts[2]).map(Made::App),
+        List::MyApps | List::Apps => check_app(&texts[0], &texts[1], &texts[2]).map(Made::App),
         List::Sites => check_site(&texts[0], &texts[1], &texts[2]).map(Made::Site),
     };
     match checked {
@@ -1996,15 +1972,15 @@ fn form_start() {
 
 fn pick_file(owner: HWND, list: List) -> Option<String> {
     let filter: Vec<u16> = match list {
-        List::Apps => "Programs\0*.exe;*.lnk\0\0",
+        List::MyApps | List::Apps => "Programs\0*.exe;*.lnk\0\0",
         List::Sites => "Programs\0*.exe\0\0",
     }
     .encode_utf16()
     .collect();
-    let title = wide(if list == List::Apps {
-        "Choose a program"
-    } else {
+    let title = wide(if list == List::Sites {
         "Choose a browser"
+    } else {
+        "Choose a program"
     });
     let mut buf = vec![0u16; 1024];
     let mut ofn = OPENFILENAMEW {
@@ -2531,29 +2507,25 @@ mod tests {
             &mut w.mouse,
             &mut w.theme,
             &mut w.autostart,
-            &mut w.apps,
-            &mut w.sites,
+            &mut w.names,
+            &mut w.items,
         ]
         .into_iter()
         .enumerate()
         {
             *field = handle(1 + i);
         }
-        w.app_start = handle(15);
-        for i in 0..5 {
-            w.app_btn[i] = handle(10 + i);
-            w.site_btn[i] = handle(20 + i);
-            w.label[i] = handle(30 + i);
-        }
-        for i in 0..6 {
-            w.error[i] = handle(40 + i);
-        }
+        w.buttons = std::array::from_fn(|i| handle(10 + i));
+        w.tabs = std::array::from_fn(|i| handle(20 + i));
+        w.label = std::array::from_fn(|i| handle(30 + i));
+        w.error = std::array::from_fn(|i| handle(40 + i));
         State {
             hwnd: handle(99),
             host: Host {
                 get: Config::default,
                 apply: dummy_apply,
             },
+            list: List::MyApps,
             dpi: 96,
             font: HFONT::default(),
             big: HICON::default(),
@@ -2584,30 +2556,61 @@ mod tests {
         assert_eq!(rect(&plan, handle(2)).1, 52);
         assert_eq!(rect(&plan, handle(3)).1, 88);
         assert_eq!(rect(&plan, handle(4)).1, 124);
-        // The lists split what is left.
         assert_eq!(rect(&plan, handle(5)).1, 160);
-        assert_eq!(rect(&plan, handle(5)).3, 188);
-        assert_eq!(rect(&plan, handle(6)).1, 356);
-        // Buttons of one list never reach the next list or the window's edge.
-        for errors in [0, 1] {
-            let mut s = dummy_state(Default::default());
-            s.errors[0] = (errors == 1).then(String::new);
-            let plan = arrange(&s, 480, 560);
-            let end = |h| rect(&plan, h).1 + rect(&plan, h).3;
-            assert!(end(handle(14)) < rect(&plan, handle(6)).1);
-            assert_eq!(rect(&plan, handle(15)).1, end(handle(10)) + 4);
-            assert_eq!(rect(&plan, handle(11)).1, end(handle(15)) + 4);
-            assert!(end(handle(24)) <= 560 - 16);
-        }
-        // Extra height goes to the lists, extra width to the right column.
+        // The switch, then the list takes the rest.
+        assert_eq!(rect(&plan, handle(20)).1, 196);
+        assert_eq!(rect(&plan, handle(6)), (126, 232, 222, 312));
+        let end = |plan: &Vec<_>, h| rect(plan, h).1 + rect(plan, h).3;
+        assert!(end(&plan, handle(16)) <= 560 - 16);
+        // Extra height goes to the list, extra width to the right column.
         let tall = arrange(&s, 600, 600);
-        assert_eq!(rect(&tall, handle(5)).3, 204);
+        assert_eq!(rect(&tall, handle(6)).3, 352);
         assert_eq!(rect(&tall, handle(1)).1, 16);
         // An error under a field moves every row below it down by its height.
         let with_error = dummy_state([Some("x".to_string()), None, None, None, None, None]);
         let plan = arrange(&with_error, 480, 560);
         assert_eq!(rect(&plan, handle(2)).1, 72);
-        assert_eq!(rect(&plan, handle(5)).3, 188);
+        assert_eq!(rect(&plan, handle(6)).1, 252);
         assert_eq!(rect(&plan, handle(40)).3, 20);
+        // Every error at once still fits.
+        let plan = arrange(
+            &dummy_state(std::array::from_fn(|_| Some("x".into()))),
+            480,
+            560,
+        );
+        assert!(end(&plan, handle(16)) <= 560);
+        assert!(end(&plan, handle(45)) <= 560);
+    }
+
+    #[test]
+    fn items_move_between_the_lists() {
+        let app = |n: &str| App {
+            label: n.to_string(),
+            path: "C:\\a.exe".to_string(),
+            args: String::new(),
+        };
+        let mut c = Config {
+            my_apps: vec![app("a"), app("b")],
+            ..Config::default()
+        };
+        assert_eq!(
+            enabled(List::MyApps, &c, None)[..4],
+            [true, true, false, false]
+        );
+        assert!(enabled(List::MyApps, &c, Some(0))[MOVE]);
+        let made = List::MyApps.take(&mut c, 0).unwrap();
+        List::Apps.put(&mut c, 0, made);
+        assert_eq!(List::MyApps.labels(&c), ["b"]);
+        assert_eq!(List::Apps.labels(&c), ["a"]);
+        assert!(List::Apps.take(&mut c, 5).is_none());
+        // A site never lands in a list of programs.
+        List::Sites.put(&mut c, 0, Made::App(app("x")));
+        assert!(c.sites.is_empty());
+        c.apps = vec![app("z"); MAX_ITEMS];
+        assert!(!enabled(List::MyApps, &c, Some(0))[MOVE]);
+        assert!(!enabled(List::Apps, &c, Some(0))[ADD]);
+        assert!(!enabled(List::Sites, &c, None)[START]);
+        List::Apps.swap(&mut c, 0, 99);
+        assert_eq!(List::Apps.other(), Some(List::MyApps));
     }
 }

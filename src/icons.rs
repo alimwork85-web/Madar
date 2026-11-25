@@ -4,7 +4,7 @@
 //! process (`madar --icons`) reads them and sends the pixels back.
 
 use crate::actions;
-use crate::config::App;
+use crate::config::Config;
 use crate::wheel::paint::{contrast_of, luminance};
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -27,8 +27,9 @@ pub const CHILD: &str = "--icons";
 
 /// An icon finished loading and waits in `Icons`.
 pub const WM_ICON: u32 = WM_APP + 13;
-/// Logical size, from DESIGN.md.
-pub const SIZE_LOGICAL: f32 = 22.0;
+/// Logical sizes, from DESIGN.md: beside a name, and alone.
+pub const WITH_NAME: f32 = 22.0;
+pub const ALONE: f32 = 32.0;
 /// A handler may ignore the requested size; nothing larger is useful here.
 pub const MAX_SIDE: u32 = 1024;
 const LIGHT: u32 = 0xF2F2F4;
@@ -116,17 +117,18 @@ impl Icons {
     }
 
     /// Starts loading the icons that are not in the cache yet.
-    pub fn request(&mut self, apps: &[App], scale: f32) {
+    pub fn request(&mut self, c: &Config, scale: f32) {
         self.collect();
-        let side = (SIZE_LOGICAL * scale).round() as u32;
+        let apps = || c.my_apps.iter().chain(&c.apps);
+        let size = if c.show_names { WITH_NAME } else { ALONE };
+        let side = (size * scale).round() as u32;
         if side != self.side {
             self.side = side;
             self.cache.clear();
         }
-        self.cache
-            .retain(|path, _| apps.iter().any(|a| a.path == *path));
+        self.cache.retain(|path, _| apps().any(|a| a.path == *path));
         let mut missing = Vec::new();
-        for a in apps {
+        for a in apps() {
             if !self.cache.contains_key(&a.path) {
                 self.cache.insert(a.path.clone(), None);
                 missing.push(a.path.clone());
