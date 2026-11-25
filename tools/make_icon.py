@@ -6,37 +6,38 @@ from PIL import Image, ImageDraw
 OUT = Path(__file__).resolve().parent.parent / "assets"
 SIZES = [16, 20, 24, 32, 48, 64, 128, 256]
 BLUE, WHITE, MINT = "#1F3FBF", "#FFFFFF", "#9BE8C9"
-# Below 32 px the slots are thinner and pushed outward so the gaps survive.
-SMALL = dict(stroke=7, inner=13.5, outer=19, tip=24.5)
-LARGE = dict(stroke=8, inner=12, outer=18, tip=22)
+OUTER, HUB, RAISED = 25, 10, 27.5
+START, STEP = -90 - 180 / 7, 360 / 7
 
 
-def slots(g):
-    for k in range(7):
-        a = k * 2 * math.pi / 7 - math.pi / 2
-        end = g["tip"] if k == 0 else g["outer"]
-        yield (MINT if k == 0 else WHITE,
-               *[(32 + r * math.cos(a), 32 + r * math.sin(a)) for r in (g["inner"], end)])
+def edge(deg, r):
+    a = math.radians(deg)
+    return 32 + r * math.cos(a), 32 + r * math.sin(a)
 
 
 def draw(size):
-    g, s = (SMALL if size < 32 else LARGE), size * 8 / 64
-    im = Image.new("RGBA", (size * 8,) * 2)
+    n, s = size * 8, size * 8 / 64
+    im = Image.new("RGBA", (n, n))
     d = ImageDraw.Draw(im)
-    d.rounded_rectangle((0, 0, size * 8 - 1, size * 8 - 1), 15 * s, fill=BLUE)
-    r = g["stroke"] / 2
-    for color, p, q in slots(g):
-        d.line([c * s for c in (*p, *q)], fill=color, width=round(g["stroke"] * s))
-        for x, y in (p, q):
-            d.ellipse([c * s for c in (x - r, y - r, x + r, y + r)], fill=color)
+    box = lambda r: [(32 - r) * s] * 2 + [(32 + r) * s] * 2
+    d.rounded_rectangle((0, 0, n - 1, n - 1), 15 * s, fill=BLUE)
+    d.ellipse(box(OUTER), fill=WHITE)
+    d.pieslice(box(RAISED), START, START + STEP, fill=MINT)
+    gap = 5 if size < 32 else 4  # wider gaps survive at tray size
+    for k in range(7):
+        x, y = edge(START + k * STEP, 30)
+        d.line([32 * s, 32 * s, x * s, y * s], fill=BLUE, width=round(gap * s))
+    d.ellipse(box(HUB), fill=BLUE)
     return im.resize((size, size), Image.Resampling.LANCZOS)
 
 
 def svg():
-    lines = "".join(
-        f'<path d="M{p[0]:.2f} {p[1]:.2f}L{q[0]:.2f} {q[1]:.2f}" stroke="{c}"/>' for c, p, q in slots(LARGE))
+    (ax, ay), (bx, by) = edge(START, RAISED), edge(START + STEP, RAISED)
+    spokes = "".join("M32 32L%.2f %.2f" % edge(START + k * STEP, 30) for k in range(7))
     return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="15" '
-            f'fill="{BLUE}"/><g stroke-width="8" stroke-linecap="round">{lines}</g></svg>\n')
+            f'fill="{BLUE}"/><circle cx="32" cy="32" r="{OUTER}" fill="{WHITE}"/>'
+            f'<path d="M32 32L{ax:.2f} {ay:.2f}A{RAISED} {RAISED} 0 0 1 {bx:.2f} {by:.2f}Z" fill="{MINT}"/>'
+            f'<path d="{spokes}" stroke="{BLUE}" stroke-width="4"/><circle cx="32" cy="32" r="{HUB}" fill="{BLUE}"/></svg>\n')
 
 
 if __name__ == "__main__":

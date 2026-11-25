@@ -1,6 +1,6 @@
 # Madar design
 
-Status: waiting for approval. Interface language is English, digits are 0-9.
+Status: approved 2026-11-25. Interface language is English, digits are 0-9.
 
 ## Purpose and feel
 A tool opened many times a day for under two seconds. Precise and quiet: one wheel, seven fixed places, no decoration.
