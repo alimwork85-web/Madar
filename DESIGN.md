@@ -70,6 +70,7 @@ Keyboard: none. Mouse: opacity and 0.96 to 1 scale over 120 ms, ease-out. Closin
 ## Settings window
 Native controls, 480 x 560, resizable, Windows light or dark title bar. One column, labels left, controls right, 16 px margin, 36 px rows.
 Order: Shortcut, Mouse button, Theme, Start with Windows, Show names, then a switch (My Apps, Apps, Tools, Sites) over one list. Buttons: Add, Add from Start, Edit, Remove, Move up, Move down, Move to... The last opens a menu of the other two program lists, a full one grayed; it is off for Sites and when both are full.
+Add site starts at Address, and Name follows it until the user writes another: `mail.google.com` gives `Google Mail`. An existing name is never replaced.
 Changes save at once. An error appears under its control. Every control is reachable with Tab and has an access key.
 
 ## Tray menu

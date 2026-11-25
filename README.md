@@ -99,7 +99,7 @@ The Settings window changes the shortcut, the mouse button, the theme, starting 
 - One list shows at a time: My Apps, Apps, Tools or Sites.
 - Add asks for a name, a program path and optional arguments, or for a site a name, an http or https
   address and an optional browser. Browse picks the file; the Start menu button,
-  for programs only, fills the path. Both fill an empty name.
+  for programs only, fills the path. Both fill an empty name, and so does the address of a site.
 - Add from Start shows the Start menu program list with a search box, Store apps included.
 - Buttons: Add, Add from Start, Edit, Remove, Move up, Move down, and Move to...
 - Move to... opens a menu of the other two lists of programs, with a full one grayed.

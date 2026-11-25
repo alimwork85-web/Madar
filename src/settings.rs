@@ -120,6 +120,7 @@ const BUTTON_TEXT: [&str; 7] = [
 ];
 const ID_BROWSE: u16 = 300;
 const ID_START: u16 = 301;
+const ID_ADDRESS: u16 = 302;
 const SUBCLASS: usize = 1;
 
 const ADD: usize = 0;
@@ -1574,6 +1575,8 @@ struct Form {
     ok: HWND,
     cancel: HWND,
     errors: [Option<String>; 3],
+    /// The last name taken from a site's address, still replaceable.
+    auto: String,
     done: bool,
     outcome: Option<Made>,
 }
@@ -1640,7 +1643,9 @@ fn dialog(owner: HWND, list: List, texts: Option<[String; 3]>, editing: bool) ->
         use_dark_title(hwnd);
         let _ = EnableWindow(owner, false);
         let _ = ShowWindow(hwnd, SW_SHOW);
-        if let Some(first) = with_form(|f| f.field[0]) {
+        // A new site starts at its address, which gives the name.
+        let start = usize::from(list == List::Sites && !editing);
+        if let Some(first) = with_form(|f| f.field[start]) {
             let _ = SetFocus(Some(first));
         }
         let mut msg = MSG::default();
@@ -1744,7 +1749,7 @@ fn form_setup(hwnd: HWND) -> bool {
             id,
         )
     };
-    let edit_ctl = || unsafe { make(hwnd, w!("EDIT"), "", edit_style(false), 0) };
+    let edit_ctl = |id| unsafe { make(hwnd, w!("EDIT"), "", edit_style(false), id) };
 
     let mut label = [HWND::default(); 3];
     let mut field = [HWND::default(); 3];
@@ -1753,7 +1758,7 @@ fn form_setup(hwnd: HWND) -> bool {
     let mut browse = HWND::default();
     for i in 0..3 {
         label[i] = text_ctl(names[i]);
-        field[i] = edit_ctl();
+        field[i] = edit_ctl(if site && i == 1 { ID_ADDRESS } else { 0 });
         if i == init.list.browse_row() {
             browse = unsafe {
                 make(
@@ -1810,6 +1815,7 @@ fn form_setup(hwnd: HWND) -> bool {
         ok,
         cancel,
         errors: Default::default(),
+        auto: String::new(),
         done: false,
         outcome: None,
     };
@@ -2012,9 +2018,24 @@ fn form_start() {
     }
 }
 
+/// The name follows the address until the user writes another one.
+fn form_address() {
+    let Some((fields, auto)) = with_form(|f| (f.field, f.auto.clone())) else {
+        return;
+    };
+    let name = text_of(fields[0]);
+    if name.trim().is_empty() || name == auto {
+        let new = site_name(&text_of(fields[1]));
+        set_text(fields[0], &new);
+        with_form(|f| f.auto = new);
+    }
+}
+
 fn form_command(id: u16, code: u16) {
     if id == IDOK.0 as u16 && code == BN_CLICKED as u16 {
         form_ok();
+    } else if id == ID_ADDRESS && u32::from(code) == EN_CHANGE {
+        form_address();
     } else if id == IDCANCEL.0 as u16 {
         with_form(|f| f.done = true);
     } else if id == ID_BROWSE && code == BN_CLICKED as u16 {
@@ -2133,6 +2154,42 @@ pub fn check_app(name: &str, path: &str, args: &str) -> Result<App, (usize, Stri
         path,
         args: args.to_string(),
     })
+}
+
+/// `mail.google.com/x` gives `Google Mail`; an IP address stays as it is.
+fn site_name(url: &str) -> String {
+    let url = url.trim();
+    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let host = rest.split(['/', '?', '#', '\\']).next().unwrap_or("");
+    let host = host.rsplit('@').next().unwrap_or("");
+    let bare = host.split(':').next().unwrap_or("");
+    if host.starts_with('[') {
+        return host.chars().take(NAME_MAX).collect();
+    }
+    if bare.parse::<std::net::Ipv4Addr>().is_ok() {
+        return bare.to_string();
+    }
+    let mut parts: Vec<&str> = bare.split('.').filter(|p| !p.is_empty()).collect();
+    if parts.len() > 1 {
+        let country = parts.pop().is_some_and(|p| p.chars().count() == 2);
+        let second = ["co", "com", "net", "org", "gov", "edu", "ac"];
+        if country && parts.len() > 1 && parts.last().is_some_and(|p| second.contains(p)) {
+            parts.pop();
+        }
+    }
+    let Some(site) = parts.pop() else {
+        return String::new();
+    };
+    // `www`, and short ones such as `m` or a language, say nothing.
+    parts.retain(|p| *p != "www" && p.chars().count() > 2);
+    let words = std::iter::once(site).chain(parts.into_iter().rev());
+    let capital = |word: &str| -> Option<String> {
+        let mut rest = word.chars();
+        let first = rest.next()?;
+        Some(first.to_uppercase().chain(rest).collect())
+    };
+    let name = words.filter_map(capital).collect::<Vec<_>>().join(" ");
+    name.chars().take(NAME_MAX).collect()
 }
 
 pub fn check_site(name: &str, url: &str, browser: &str) -> Result<Site, (usize, String)> {
@@ -2378,6 +2435,29 @@ mod tests {
             MOUSE_ITEMS.map(mouse_label),
             ["None", "Back", "Forward", "Ctrl + Middle"]
         );
+    }
+
+    #[test]
+    fn site_names() {
+        for (url, name) in [
+            ("https://www.youtube.com/watch?v=1", "Youtube"),
+            ("youtube.com", "Youtube"),
+            ("mail.google.com/x", "Google Mail"),
+            ("https://m.facebook.com", "Facebook"),
+            ("http://user:pass@www.bbc.co.uk:8080/a", "Bbc"),
+            ("https://moe.gov.sa", "Moe"),
+            ("https://x.com", "X"),
+            ("localhost:3000", "Localhost"),
+            ("http://192.168.1.1:80/a", "192.168.1.1"),
+            ("http://[::1]:80/", "[::1]:80"),
+            ("https://موقع.com", "موقع"),
+            ("https://", ""),
+            ("", ""),
+            (" . ", ""),
+        ] {
+            assert_eq!(site_name(url), name, "{url}");
+        }
+        assert!(site_name(&"a".repeat(500)).chars().count() <= NAME_MAX);
     }
 
     #[test]
