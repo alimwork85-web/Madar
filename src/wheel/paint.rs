@@ -33,6 +33,8 @@ pub struct Palette {
     pub accent: u32,
     pub on_accent: u32,
     pub disabled: u32,
+    /// Fill of a free place.
+    pub empty: u32,
     /// High Contrast draws slot outlines because its fills are equal.
     pub outline: bool,
 }
@@ -55,6 +57,8 @@ pub fn theme(name: &str) -> Palette {
         accent,
         on_accent,
         disabled: mix(text, plate, 0.6),
+        // Aqua's slot is already close to its plate.
+        empty: mix(slot, plate, if name == "Aqua" { 0.8 } else { 0.35 }),
         outline: false,
     }
 }
@@ -120,6 +124,7 @@ pub fn palette(name: &str) -> Palette {
         accent: sys(COLOR_HIGHLIGHT),
         on_accent: sys(COLOR_HIGHLIGHTTEXT),
         disabled: sys(COLOR_GRAYTEXT),
+        empty: sys(COLOR_WINDOW),
         outline: true,
     }
 }
@@ -352,7 +357,7 @@ impl Painter {
             }
         };
         let normal = shade(p.slot_tones(p.slot), OUTER_R)?;
-        let faint = shade(p.slot_tones(mix(p.slot, p.plate, 0.35)), OUTER_R)?;
+        let faint = shade(p.slot_tones(p.empty), OUTER_R)?;
         let disc = |r| D2D1_ELLIPSE {
             point: pt!(0.0, 0.0),
             radiusX: r,
@@ -644,6 +649,16 @@ mod tests {
                 assert!(now >= before && now >= 4.5, "{name} {tone:06X} {now}");
             }
             assert!(a != b && c != d && p.rim() != p.plate, "{name}");
+        }
+    }
+
+    #[test]
+    fn free_places_show_on_the_plate() {
+        for name in crate::config::THEMES {
+            let p = theme(name);
+            let (a, b) = p.slot_tones(p.empty);
+            let c = contrast(a, p.plate).max(contrast(b, p.plate));
+            assert!(c >= 1.07, "{name} {c}");
         }
     }
 
