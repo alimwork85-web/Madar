@@ -1,4 +1,4 @@
-//! Puts the app icon (resource 1), the manifest and the version (resource 16) into the EXE.
+//! Puts the app icon (resource 1), the manifest and the version into the EXE, without rc.exe.
 
 use std::{env, fs, path::Path};
 
@@ -27,14 +27,19 @@ fn block(wtype: u16, name: &str, value: &[u8], children: &[Vec<u8>]) -> Vec<u8> 
     }
     let len = (b.len() as u16).to_le_bytes();
     b[..2].copy_from_slice(&len);
-    b[2..4].copy_from_slice(&(value.len() as u16).to_le_bytes());
+    // Text (type 1) is counted in UTF-16 units, binary values in bytes.
+    let count = value.len() / if wtype == 1 { 2 } else { 1 };
+    b[2..4].copy_from_slice(&(count as u16).to_le_bytes());
     b[4..6].copy_from_slice(&wtype.to_le_bytes());
     b
 }
 
 /// A NUL-terminated UTF-16 string as bytes.
 fn wide(text: &str) -> Vec<u8> {
-    text.encode_utf16().flat_map(u16::to_le_bytes).chain([0, 0]).collect()
+    text.encode_utf16()
+        .flat_map(u16::to_le_bytes)
+        .chain([0, 0])
+        .collect()
 }
 
 /// The VS_VERSIONINFO resource, its version read from Cargo.toml.
@@ -54,7 +59,19 @@ fn version() -> Vec<u8> {
     let (ms, ls) = ((major << 16) | minor, patch << 16);
     let mut fixed = Vec::with_capacity(52);
     for v in [
-        0xFEEF04BD, 0x0001_0000, ms, ls, ms, ls, 0x3F, 0, 0x0004_0004, 1, 0, 0, 0,
+        0xFEEF04BD,
+        0x0001_0000,
+        ms,
+        ls,
+        ms,
+        ls,
+        0x3F,
+        0,
+        0x0004_0004,
+        1,
+        0,
+        0,
+        0,
     ] {
         fixed.extend(v.to_le_bytes());
     }

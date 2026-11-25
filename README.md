@@ -6,8 +6,8 @@ Developer: Ali Alhumedi.
 ## Opening the wheel
 
 - Press Ctrl+Space. This is the default; Settings can change it.
-- Press the mouse button chosen in Settings: Back, Forward, Ctrl+Middle or None.
-- Click the tray icon and choose Open wheel.
+- Press the mouse button chosen in Settings: Back (the default), Forward or Ctrl + Middle. None turns it off.
+- Click the tray icon. A right click shows its menu: Open wheel, Settings, Pause, Exit.
 - Start madar.exe again. A copy that is already running shows its wheel and the new one exits.
 
 ## Using it
@@ -16,7 +16,7 @@ Developer: Ali Alhumedi.
 - Hold the summon button and drag, then release on a slot.
 - A digit opens the slot with that number. The number pad works too.
 - Arrows, Tab and Shift+Tab move between slots.
-- Enter opens the highlighted slot.
+- Enter opens the highlighted slot. With none highlighted it works like Backspace.
 - Backspace goes back from a folder, and closes the wheel at the top level.
 - Esc closes the wheel. Clicking the hub goes back.
 
@@ -43,7 +43,7 @@ The Settings window changes the shortcut, the mouse button, the theme, starting 
 both lists.
 
 - A theme is picked by name from 8 themes. Midnight is the default.
-- Add app from Start shows the Start menu program list with a search box, Store apps included.
+- Add from Start shows the Start menu program list with a search box, Store apps included.
 - Add app asks for a name, a program path and optional arguments. Browse picks the file.
 - Add site asks for a name, an http or https address and an optional browser.
 - Each list holds at most 8 items and has Edit, Remove, Move up and Move down.
@@ -53,6 +53,7 @@ both lists.
 
 Settings live in `%APPDATA%\Madar\config.json`.
 If the file cannot be read, Madar starts with defaults and shows a warning.
+The first change then asks before replacing it, and keeps a copy next to it.
 A save that fails leaves the previous file in place.
 The `MADAR_DIR` environment variable points Madar at another folder, for tests.
 
