@@ -37,6 +37,7 @@ pub enum Action {
     Run,
     TaskManager,
     Terminal,
+    ScreenOff,
     RestartExplorer,
     Settings,
     MyApp(usize),
@@ -117,6 +118,7 @@ pub fn slots(page: Page, c: &Config) -> Vec<Slot> {
             slot("Task Manager", '\u{E9D9}', Do(TaskManager)),
             slot("Restart Explorer", '\u{E72C}', Do(RestartExplorer)),
             slot("Admin Terminal", '\u{E7EF}', Do(Terminal)),
+            slot("Screen off", '\u{E7F4}', Do(ScreenOff)),
         ]),
         Page::MyApps => folder(
             (c.my_apps.iter().enumerate())
@@ -320,7 +322,8 @@ mod tests {
         assert_eq!(system.len(), 8);
         assert_eq!(system[2].target, Target::Do(Action::RestartExplorer));
         assert_eq!(system[3].target, Target::Do(Action::Terminal));
-        assert_eq!(system[4].target, Target::Empty);
+        assert_eq!(system[4].target, Target::Do(Action::ScreenOff));
+        assert_eq!(system[5].target, Target::Empty);
         assert_eq!(slots(Page::Sound, &c).len(), 8);
         assert_eq!(
             slots(Page::Apps, &c)[0].target,

@@ -52,6 +52,11 @@ const MESSAGE: usize = 2;
 /// Reads the sound again while its page shows, so a device that joins appears.
 const DEVICES: usize = 3;
 const DEVICES_MS: u32 = 1000;
+/// Turns the screen off. The wait keeps the press itself from waking it.
+const SCREEN: usize = 4;
+const SCREEN_MS: u32 = 1000;
+/// `SC_MONITORPOWER`: off.
+const POWER_OFF: isize = 2;
 const ANIMATION_MS: f32 = 120.0;
 /// Pointer travel, in logical pixels, that turns a press into a drag.
 const DRAG: f32 = 20.0;
@@ -651,6 +656,10 @@ impl App {
                 self.shine(brightness::Order::Change(by));
                 self.draw();
             }
+            Target::Do(Action::ScreenOff) => {
+                self.close();
+                unsafe { SetTimer(Some(self.hwnd), SCREEN, SCREEN_MS, None) };
+            }
             Target::Do(Action::VolumeUp) => self.sound(Order::Step(true)),
             Target::Do(Action::VolumeDown) => self.sound(Order::Step(false)),
             Target::Do(Action::Mute) => self.sound(Order::ToggleMute),
@@ -1017,6 +1026,15 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
             if w.0 == DEVICES {
                 if a.visible && a.page == Page::Sound {
                     a.sound(Order::Read);
+                }
+                return;
+            }
+            if w.0 == SCREEN {
+                // Posted: Windows acts on it once this borrow has ended.
+                unsafe {
+                    let _ = KillTimer(Some(hwnd), SCREEN);
+                    let off = WPARAM(SC_MONITORPOWER as usize);
+                    let _ = PostMessageW(Some(hwnd), WM_SYSCOMMAND, off, LPARAM(POWER_OFF));
                 }
                 return;
             }
