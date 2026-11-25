@@ -17,7 +17,7 @@ use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute};
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::Controls::{BST_CHECKED, BST_UNCHECKED, EM_SETLIMITTEXT};
+use windows::Win32::UI::Controls::{BST_CHECKED, BST_UNCHECKED, EM_SETLIMITTEXT, SetScrollInfo};
 use windows::Win32::UI::HiDpi::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
@@ -206,6 +206,8 @@ struct State {
     busy: u32,
     /// Last key captured in the shortcut field; its WM_CHAR is swallowed.
     captured: u32,
+    /// Wheel movement not yet scrolled.
+    wheel: i32,
 }
 
 thread_local! {
@@ -343,7 +345,45 @@ pub fn translate(msg: &MSG) -> bool {
             return true;
         }
     }
-    unsafe { IsDialogMessageW(hwnd, msg).as_bool() }
+    let ours = unsafe { GetAncestor(msg.hwnd, GA_ROOT) } == hwnd;
+    if ours && scrolls(hwnd) {
+        if msg.message == WM_MOUSEWHEEL {
+            let dropped = [mouse, theme]
+                .iter()
+                .any(|c| send(*c, CB_GETDROPPEDSTATE, 0, 0) != 0);
+            // Over any control: no list here is longer than its box.
+            if !dropped {
+                scroll_wheel(hwnd, (msg.wParam.0 >> 16) as i16 as i32);
+                return true;
+            }
+        }
+        if msg.message == WM_KEYDOWN
+            && let Some(code) = scroll_key(msg.wParam.0 as u32, msg.hwnd, &w)
+        {
+            scroll_bar(hwnd, code.0 as u16);
+            return true;
+        }
+    }
+    let done = unsafe { IsDialogMessageW(hwnd, msg).as_bool() };
+    if ours && matches!(msg.message, WM_KEYDOWN | WM_SYSKEYDOWN | WM_SYSCHAR) {
+        reveal(hwnd);
+    }
+    done
+}
+
+/// The height of the desktop, without the taskbar, around a window.
+fn work_height(hwnd: HWND) -> i32 {
+    let mut info = MONITORINFO {
+        cbSize: size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    unsafe {
+        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        if !GetMonitorInfoW(monitor, &mut info).as_bool() {
+            return i32::MAX;
+        }
+    }
+    info.rcWork.bottom - info.rcWork.top
 }
 
 /// Destroys the window if open. Everything is freed at WM_NCDESTROY.
@@ -590,6 +630,7 @@ fn setup(hwnd: HWND) -> bool {
             errors: Default::default(),
             busy: 0,
             captured: 0,
+            wheel: 0,
         })
     });
 
@@ -617,12 +658,13 @@ fn setup(hwnd: HWND) -> bool {
 }
 
 unsafe fn build_controls(hwnd: HWND) -> Widgets {
+    // A label ends the group before it, or the arrows would stop at it.
     let label = |text: &str| unsafe {
         make(
             hwnd,
             w!("STATIC"),
             text,
-            WS_CHILD | WS_VISIBLE | SS_CENTER,
+            WS_CHILD | WS_VISIBLE | WS_GROUP | SS_CENTER,
             0,
         )
     };
@@ -727,6 +769,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
             }
         }
         WM_SIZE => layout(),
+        WM_VSCROLL => scroll_bar(hwnd, loword(w.0 as u32)),
         WM_GETMINMAXINFO => {
             if let Some(dpi) = with_state(|s| s.dpi) {
                 let (width, height) = window_size(dpi);
@@ -734,7 +777,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
                     let info = &mut *(l.0 as *mut MINMAXINFO);
                     info.ptMinTrackSize = POINT {
                         x: width,
-                        y: height,
+                        y: height.min(work_height(hwnd)),
                     };
                 }
             }
@@ -749,7 +792,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
                     r.left,
                     r.top,
                     r.right - r.left,
-                    r.bottom - r.top,
+                    (r.bottom - r.top).min(work_height(hwnd)),
                     SWP_NOZORDER | SWP_NOACTIVATE,
                 );
             }
@@ -880,23 +923,144 @@ fn layout() {
     let Some(hwnd) = with_state(|s| s.hwnd) else {
         return;
     };
+    let Some(need) = with_state(|s| needed(s)) else {
+        return;
+    };
     let mut rc = RECT::default();
     if unsafe { GetClientRect(hwnd, &mut rc) }.is_err() {
         return;
     }
-    let plan = with_state(|s| arrange(s, rc.right, rc.bottom)).unwrap_or_default();
+    // The bar shows only while the window is too short, and keeps the position.
+    let bar = SCROLLINFO {
+        cbSize: size_of::<SCROLLINFO>() as u32,
+        fMask: SIF_RANGE | SIF_PAGE,
+        nMax: need - 1,
+        nPage: rc.bottom.max(0) as u32,
+        ..Default::default()
+    };
+    unsafe { SetScrollInfo(hwnd, SB_VERT, &bar, true) };
+    if unsafe { GetClientRect(hwnd, &mut rc) }.is_err() {
+        return;
+    }
+    let pos = scroll_info(hwnd).nPos;
+    let plan = with_state(|s| arrange(s, rc.right, rc.bottom.max(need))).unwrap_or_default();
     for (h, x, y, w, y2) in plan {
         unsafe {
-            let _ = MoveWindow(h, x, y, w, y2, true);
+            let _ = MoveWindow(h, x, y - pos, w, y2, true);
         }
     }
     repaint(hwnd);
+}
+
+fn scroll_info(hwnd: HWND) -> SCROLLINFO {
+    let mut info = SCROLLINFO {
+        cbSize: size_of::<SCROLLINFO>() as u32,
+        fMask: SIF_ALL,
+        ..Default::default()
+    };
+    let _ = unsafe { GetScrollInfo(hwnd, SB_VERT, &mut info) };
+    info
+}
+
+fn scrolls(hwnd: HWND) -> bool {
+    let i = scroll_info(hwnd);
+    i.nMax >= i.nPage as i32
+}
+
+/// Windows keeps `pos` within range.
+fn scroll_to(hwnd: HWND, pos: i32) {
+    let info = SCROLLINFO {
+        cbSize: size_of::<SCROLLINFO>() as u32,
+        fMask: SIF_POS,
+        nPos: pos,
+        ..Default::default()
+    };
+    unsafe { SetScrollInfo(hwnd, SB_VERT, &info, true) };
+    // Always: a finger moves the bar before this is called.
+    layout();
+}
+
+fn scroll_bar(hwnd: HWND, code: u16) {
+    let i = scroll_info(hwnd);
+    let row = with_state(|s| px(ROW, s.dpi)).unwrap_or(ROW);
+    let page = (i.nPage as i32 - row).max(row);
+    let pos = match SCROLLBAR_COMMAND(code as i32) {
+        SB_LINEUP => i.nPos - row,
+        SB_LINEDOWN => i.nPos + row,
+        SB_PAGEUP => i.nPos - page,
+        SB_PAGEDOWN => i.nPos + page,
+        SB_THUMBTRACK | SB_THUMBPOSITION => i.nTrackPos,
+        SB_TOP => 0,
+        SB_BOTTOM => i.nMax,
+        _ => return,
+    };
+    scroll_to(hwnd, pos);
+}
+
+/// Touchpads send small deltas, so what is left over waits for the next one.
+fn scroll_wheel(hwnd: HWND, delta: i32) {
+    let by = with_state(|s| {
+        let notch = 2 * px(ROW, s.dpi);
+        s.wheel += delta * notch;
+        let by = s.wheel / 120;
+        s.wheel -= by * 120;
+        by
+    });
+    scroll_to(hwnd, scroll_info(hwnd).nPos - by.unwrap_or(0));
+}
+
+/// Scrolls until the focused control shows.
+fn reveal(hwnd: HWND) {
+    let focus = unsafe { GetFocus() };
+    if !scrolls(hwnd) || unsafe { GetParent(focus) }.unwrap_or_default() != hwnd {
+        return;
+    }
+    let (mut rc, mut top) = (RECT::default(), POINT::default());
+    let mut client = RECT::default();
+    unsafe {
+        let _ = GetWindowRect(focus, &mut rc);
+        let _ = ClientToScreen(hwnd, &mut top);
+        let _ = GetClientRect(hwnd, &mut client);
+    }
+    let room = with_state(|s| px(GAP, s.dpi)).unwrap_or(GAP);
+    let (from, to) = (rc.top - top.y - room, rc.bottom - top.y + room);
+    let by = if from < 0 || to - from > client.bottom {
+        from
+    } else {
+        (to - client.bottom).max(0)
+    };
+    if by != 0 {
+        scroll_to(hwnd, scroll_info(hwnd).nPos + by);
+    }
+}
+
+/// Keys the focused control does not need itself.
+fn scroll_key(vk: u32, focus: HWND, w: &Widgets) -> Option<SCROLLBAR_COMMAND> {
+    if [w.hotkey, w.mouse, w.theme, w.items].contains(&focus) {
+        return None;
+    }
+    let keys = [
+        (VK_PRIOR, SB_PAGEUP),
+        (VK_NEXT, SB_PAGEDOWN),
+        (VK_HOME, SB_TOP),
+        (VK_END, SB_BOTTOM),
+    ];
+    let found = keys.iter().find(|(key, _)| key.0 as u32 == vk);
+    found.map(|(_, code)| *code)
 }
 
 /// Moved controls leave pieces of themselves behind otherwise.
 fn repaint(hwnd: HWND) {
     let flags = RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN;
     let _ = unsafe { RedrawWindow(Some(hwnd), None, None, flags) };
+}
+
+/// The client height in which every button shows.
+fn needed(s: &State) -> i32 {
+    let g = Geometry::new(s.dpi);
+    let errors = s.errors[..5].iter().flatten().count() as i32;
+    let buttons = s.w.buttons.len() as i32 * (g.btn_h + g.gap) - g.gap;
+    2 * g.margin + 6 * g.row + errors * g.err + buttons
 }
 
 /// Control rectangles for the client size, computed with no API calls.
@@ -2597,6 +2761,7 @@ mod tests {
             errors,
             busy: 0,
             captured: 0,
+            wheel: 0,
         }
     }
 
@@ -2634,6 +2799,18 @@ mod tests {
         assert_eq!(rect(&plan, handle(2)).1, 72);
         assert_eq!(rect(&plan, handle(6)).1, 252);
         assert_eq!(rect(&plan, handle(40)).3, 20);
+        // A short window scrolls over the height in which every button fits.
+        for s in [&s, &with_error] {
+            let need = needed(s);
+            let plan = arrange(s, 480, need);
+            assert_eq!(end(&plan, handle(16)), need - 16);
+            assert!(need <= 560 && end(&plan, handle(6)) <= need);
+        }
+        let w = dummy_state(Default::default()).w;
+        let key = |vk: VIRTUAL_KEY, h| scroll_key(vk.0 as u32, h, &w);
+        assert_eq!(key(VK_NEXT, handle(10)), Some(SB_PAGEDOWN));
+        assert_eq!(key(VK_NEXT, handle(6)), None);
+        assert_eq!(key(VK_TAB, handle(10)), None);
         // Every error at once still fits.
         let plan = arrange(
             &dummy_state(std::array::from_fn(|_| Some("x".into()))),

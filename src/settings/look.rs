@@ -163,14 +163,16 @@ pub fn show(hwnd: HWND) {
     title(DWMWA_TEXT_COLOR, own(p.text));
     title(DWMWA_BORDER_COLOR, own(border(p)));
     unsafe {
+        let style = if dark {
+            w!("DarkMode_Explorer")
+        } else {
+            w!("Explorer")
+        };
+        // The window has a scroll bar of its own while it is short.
+        let _ = SetWindowTheme(hwnd, style, None);
         let mut child = GetWindow(hwnd, GW_CHILD).unwrap_or_default();
         while !child.is_invalid() {
             if class_is(child, "ListBox") {
-                let style = if dark {
-                    w!("DarkMode_Explorer")
-                } else {
-                    w!("Explorer")
-                };
                 let _ = SetWindowTheme(child, style, None);
             }
             child = GetWindow(child, GW_HWNDNEXT).unwrap_or_default();
