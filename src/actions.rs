@@ -112,7 +112,6 @@ fn plan(action: Action, c: &Config) -> Result<Plan, String> {
         Action::AddItems
         | Action::Bluetooth
         | Action::RestartExplorer
-        | Action::CleanDns
         | Action::VolumeUp
         | Action::VolumeDown
         | Action::Mute
@@ -165,14 +164,10 @@ fn system_dir() -> Result<String, String> {
     }
 }
 
-/// A text keeps the wheel open to show it.
-pub fn run(action: Action, c: &Config) -> Result<Option<&'static str>, String> {
+pub fn run(action: Action, c: &Config) -> Result<(), String> {
     match action {
-        Action::RestartExplorer => maintenance::restart_explorer().map(|()| None),
-        Action::CleanDns => {
-            maintenance::clean_dns(&system_dir()?).map(|()| Some(maintenance::DNS_CLEANED))
-        }
-        _ => open(action, c).map(|()| None),
+        Action::RestartExplorer => maintenance::restart_explorer(),
+        _ => open(action, c),
     }
 }
 

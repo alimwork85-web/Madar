@@ -103,7 +103,7 @@ struct App {
     message: Option<String>,
     animation: Option<Instant>,
     /// Result of the action running on a worker thread.
-    running: Option<Receiver<Result<Option<&'static str>, String>>>,
+    running: Option<Receiver<Result<(), String>>>,
     /// The last press on Restart Explorer.
     restart_pressed: Option<Instant>,
     /// Open while the wheel uses the sound.
@@ -618,8 +618,7 @@ impl App {
         };
         self.running = None;
         match result {
-            Ok(None) => self.close(),
-            Ok(Some(text)) => self.tell(text),
+            Ok(()) => self.close(),
             Err(e) => self.tell(&e),
         }
     }

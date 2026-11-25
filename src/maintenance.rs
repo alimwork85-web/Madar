@@ -1,9 +1,7 @@
-//! Restarting Explorer and cleaning the DNS cache. Both wait, so neither is
-//! for the wheel's thread.
+//! Restarting Explorer. It waits, so it is not for the wheel's thread.
 
-use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::*;
@@ -15,7 +13,6 @@ use windows::core::PWSTR;
 
 pub const CONFIRM: &str = "Folders will close. Press again";
 pub const WORKING: &str = "Restarting Explorer...";
-pub const DNS_CLEANED: &str = "DNS cache cleaned";
 /// Repeats of a held key and double clicks are not a second press.
 const LOCK: Duration = Duration::from_secs(1);
 const SHELL_TIME: Duration = Duration::from_secs(10);
@@ -134,21 +131,6 @@ fn unique(id: u32, explorer: &Path) -> Option<RM_UNIQUE_PROCESS> {
             dwProcessId: id,
             ProcessStartTime: start,
         })
-    }
-}
-
-/// `system` is Windows' own folder of programs.
-pub fn clean_dns(system: &str) -> Result<(), String> {
-    let done = Command::new(format!("{system}\\ipconfig.exe"))
-        .arg("/flushdns")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .creation_flags(CREATE_NO_WINDOW.0)
-        .status();
-    match done {
-        Ok(status) if status.success() => Ok(()),
-        _ => Err("Could not clean".to_string()),
     }
 }
 

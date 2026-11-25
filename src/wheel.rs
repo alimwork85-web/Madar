@@ -37,7 +37,6 @@ pub enum Action {
     Run,
     TaskManager,
     RestartExplorer,
-    CleanDns,
     Settings,
     MyApp(usize),
     App(usize),
@@ -114,7 +113,6 @@ pub fn slots(page: Page, c: &Config) -> Vec<Slot> {
             slot("Run", '\u{E756}', Do(Run)),
             slot("Task Manager", '\u{E9D9}', Do(TaskManager)),
             slot("Restart Explorer", '\u{E72C}', Do(RestartExplorer)),
-            slot("Clean DNS Cache", '\u{EA99}', Do(CleanDns)),
         ]),
         Page::MyApps => folder(
             (c.my_apps.iter().enumerate())
@@ -315,7 +313,7 @@ mod tests {
         let system = slots(Page::System, &c);
         assert_eq!(system.len(), 8);
         assert_eq!(system[2].target, Target::Do(Action::RestartExplorer));
-        assert_eq!(system[3].target, Target::Do(Action::CleanDns));
+        assert_eq!(system[3].target, Target::Empty);
         assert_eq!(slots(Page::Sound, &c).len(), 8);
         assert_eq!(
             slots(Page::Apps, &c)[0].target,
