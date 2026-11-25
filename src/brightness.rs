@@ -3,7 +3,6 @@
 //! WMI can be slow, so its calls run on a worker thread that lives only while
 //! the wheel uses them.
 
-use crate::audio::step;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::{E_FAIL, E_POINTER, HWND, LPARAM, WPARAM};
@@ -20,6 +19,8 @@ use windows::core::{BSTR, Error, PCWSTR, Result, w};
 
 /// An answer waits in `Light`.
 pub const WM_LIGHT: u32 = WM_APP + 16;
+/// Percent per press.
+pub const STEP: i32 = 5;
 /// Lower could look like a screen that is off.
 const LOWEST: i32 = 5;
 /// The value read back follows a change late, so the one just set counts.
@@ -28,8 +29,6 @@ const QUERY_MS: i32 = 5000;
 
 pub enum Order {
     Read,
-    /// One press, up or down.
-    Step(bool),
     /// Percent to add.
     Change(i32),
 }
@@ -108,7 +107,6 @@ fn work(orders: &Receiver<Order>, answer: impl Fn(Answer) -> bool) {
 fn changed(now: i32, order: &Order) -> i32 {
     let value = match order {
         Order::Read => return now,
-        Order::Step(up) => step(now, *up),
         Order::Change(by) => now + by,
     };
     if value < now {
@@ -192,13 +190,12 @@ mod tests {
 
     #[test]
     fn stays_in_range() {
-        let press = |now, up| changed(now, &Order::Step(up));
         let turn = |now, by| changed(now, &Order::Change(by));
-        assert_eq!((press(10, true), press(34, true)), (20, 40));
-        assert_eq!((press(10, false), press(5, false)), (5, 5));
+        assert_eq!((turn(10, STEP), turn(34, STEP)), (15, 39));
+        assert_eq!((turn(10, -STEP), turn(5, -STEP)), (5, 5));
         // Darker than the limit: down changes nothing, up leaves it.
-        assert_eq!((press(0, false), turn(3, -2)), (0, 3));
-        assert_eq!((press(0, true), turn(0, 2)), (5, 2));
+        assert_eq!((turn(0, -STEP), turn(3, -2)), (0, 3));
+        assert_eq!((turn(0, STEP), turn(0, 2)), (5, 2));
         assert_eq!((turn(6, -2), turn(99, 2)), (5, 100));
         assert_eq!(changed(3, &Order::Read), 3);
     }

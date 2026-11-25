@@ -644,7 +644,11 @@ impl App {
                 // The hub shows the value, also when a digit was pressed.
                 self.hot = Some(i);
                 self.hub_hot = false;
-                self.shine(brightness::Order::Step(action == Action::BrightnessUp));
+                let by = match action {
+                    Action::BrightnessUp => brightness::STEP,
+                    _ => -brightness::STEP,
+                };
+                self.shine(brightness::Order::Change(by));
                 self.draw();
             }
             Target::Do(Action::VolumeUp) => self.sound(Order::Step(true)),
