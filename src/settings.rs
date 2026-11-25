@@ -665,7 +665,6 @@ unsafe fn build_controls(hwnd: HWND) -> Widgets {
     w.error[3] = error(3);
     w.names = unsafe { make(hwnd, w!("BUTTON"), "Show &names", check, ID_NAMES) };
     w.error[4] = error(4);
-    w.label[3] = label("Lists");
     for (i, text) in TAB_TEXT.iter().enumerate() {
         // One group: Tab reaches the pressed one, the arrows switch.
         let radio = BS_AUTORADIOBUTTON | BS_PUSHLIKE;
@@ -675,6 +674,8 @@ unsafe fn build_controls(hwnd: HWND) -> Widgets {
         }
         w.tabs[i] = unsafe { make(hwnd, w!("BUTTON"), text, style, TAB_ID + i as u16) };
     }
+    // After the switch, which needs no label: screen readers name the list by it.
+    w.label[3] = label("Lists");
     w.items = unsafe { make(hwnd, w!("LISTBOX"), "", list_style() | WS_GROUP, ITEMS_ID) };
     for (i, text) in BUTTON_TEXT.iter().enumerate() {
         w.buttons[i] = button(text, BUTTONS + i as u16, false);
