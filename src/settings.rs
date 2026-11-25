@@ -4,6 +4,7 @@
 //! dialogs, `SendMessageW` to our own controls, `DestroyWindow`, modal loops)
 //! runs with no borrow of the state held: the state is copied out first.
 
+pub mod browse;
 pub mod start_menu;
 
 use crate::actions;
@@ -19,13 +20,12 @@ use windows::Win32::System::Registry::{
     HKEY_CURRENT_USER, REG_VALUE_TYPE, RRF_RT_REG_DWORD, RegGetValueW,
 };
 use windows::Win32::UI::Accessibility::{HCF_HIGHCONTRASTON, HIGHCONTRASTW};
-use windows::Win32::UI::Controls::Dialogs::*;
 use windows::Win32::UI::Controls::{BST_CHECKED, BST_UNCHECKED, EM_SETLIMITTEXT};
 use windows::Win32::UI::HiDpi::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::*;
-use windows::core::{HSTRING, PCWSTR, PWSTR, w};
+use windows::core::{HSTRING, PCWSTR, w};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Field {
@@ -1941,12 +1941,19 @@ fn form_ok() {
 }
 
 fn form_browse() {
+    let Some((hwnd, list)) = with_form(|f| (f.hwnd, f.list)) else {
+        return;
+    };
+    let Some(path) = browse::pick(hwnd, list == List::Sites) else {
+        return;
+    };
+    // The form can be closed or go away while the dialog is open.
     let Some((hwnd, list, fields)) = with_form(|f| (f.hwnd, f.list, f.field)) else {
         return;
     };
-    let Some(path) = pick_file(hwnd, list) else {
+    if !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
         return;
-    };
+    }
     let target = list.browse_row();
     set_text(fields[target], &path);
     if text_of(fields[0]).trim().is_empty()
@@ -1968,41 +1975,6 @@ fn form_start() {
         let name: String = entry.name.chars().take(NAME_MAX).collect();
         set_text(fields[0], &name);
     }
-}
-
-fn pick_file(owner: HWND, list: List) -> Option<String> {
-    let filter: Vec<u16> = match list {
-        List::MyApps | List::Apps => "Programs\0*.exe;*.lnk\0\0",
-        List::Sites => "Programs\0*.exe\0\0",
-    }
-    .encode_utf16()
-    .collect();
-    let title = wide(if list == List::Sites {
-        "Choose a browser"
-    } else {
-        "Choose a program"
-    });
-    let mut buf = vec![0u16; 1024];
-    let mut ofn = OPENFILENAMEW {
-        lStructSize: size_of::<OPENFILENAMEW>() as u32,
-        hwndOwner: owner,
-        lpstrFilter: PCWSTR(filter.as_ptr()),
-        lpstrFile: PWSTR(buf.as_mut_ptr()),
-        nMaxFile: buf.len() as u32,
-        lpstrTitle: PCWSTR(title.as_ptr()),
-        Flags: OFN_FILEMUSTEXIST
-            | OFN_PATHMUSTEXIST
-            | OFN_NOCHANGEDIR
-            | OFN_NODEREFERENCELINKS
-            | OFN_EXPLORER
-            | OFN_HIDEREADONLY,
-        ..Default::default()
-    };
-    if !unsafe { GetOpenFileNameW(&mut ofn) }.as_bool() {
-        return None;
-    }
-    let end = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
-    (end > 0).then(|| String::from_utf16_lossy(&buf[..end]))
 }
 
 fn form_command(id: u16, code: u16) {

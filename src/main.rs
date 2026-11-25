@@ -820,6 +820,11 @@ fn main() {
         let _ = settings::start_menu::child();
         return;
     }
+    if first.as_deref() == Some(settings::browse::CHILD) {
+        // An empty answer tells the parent that the user cancelled.
+        let _ = settings::browse::child(args);
+        return;
+    }
     if first.as_deref() == Some(icons::CHILD) {
         let side = args.next().and_then(|s| s.parse().ok());
         if let Some(side) = side.filter(|s| (1..=icons::MAX_SIDE).contains(s)) {
