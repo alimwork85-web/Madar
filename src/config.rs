@@ -20,7 +20,7 @@ pub const THEMES: [&str; 8] = [
 ];
 
 const DEFAULT_THEME: &str = "Midnight";
-const DEFAULT_HOTKEY: &str = "Ctrl+Alt+Space";
+const DEFAULT_HOTKEY: &str = "Ctrl+Space";
 const MAX_ITEMS: usize = 8;
 const MAX_FILE_BYTES: u64 = 1024 * 1024;
 
@@ -411,7 +411,7 @@ mod tests {
     #[test]
     fn default_matches_spec() {
         let c = Config::default();
-        assert_eq!(c.hotkey, "Ctrl+Alt+Space");
+        assert_eq!(c.hotkey, "Ctrl+Space");
         assert_eq!(c.mouse, Mouse::Back);
         assert_eq!(c.theme, "Midnight");
         assert!(!c.autostart);
@@ -445,7 +445,7 @@ mod tests {
     fn missing_fields_use_defaults() {
         let c = parse(r#"{"theme":"Aqua"}"#).unwrap();
         assert_eq!(c.theme, "Aqua");
-        assert_eq!(c.hotkey, "Ctrl+Alt+Space");
+        assert_eq!(c.hotkey, "Ctrl+Space");
         assert_eq!(c.mouse, Mouse::Back);
         assert!(!c.autostart);
     }
