@@ -8,6 +8,7 @@ mod wheel;
 use config::{Config, Mouse};
 use std::cell::RefCell;
 use std::path::PathBuf;
+use std::sync::mpsc::{Receiver, channel};
 use std::time::Instant;
 use trigger::{MouseHook, unpack};
 use wheel::paint::{Painter, Scene, palette};
@@ -25,6 +26,8 @@ use windows::core::{BOOL, HSTRING, PCWSTR, w};
 const CLASS: PCWSTR = w!("MadarWheel");
 /// A second launch asks the first one to open the wheel.
 const WM_SHOW_WHEEL: u32 = WM_APP + 10;
+/// An action finished; its result waits in `App::running`.
+const WM_ACTION_DONE: u32 = WM_APP + 11;
 const SUMMON_KEY: i32 = 1;
 const FIRST_WHEEL_KEY: i32 = 100;
 const ANIMATION: usize = 1;
@@ -73,6 +76,8 @@ struct App {
     dragged: bool,
     message: Option<String>,
     animation: Option<Instant>,
+    /// Result of the action running on a worker thread.
+    running: Option<Receiver<Result<(), String>>>,
 }
 
 thread_local! {
@@ -154,6 +159,8 @@ impl App {
             return;
         }
         self.visible = false;
+        // A result that arrives after closing belongs to nobody.
+        self.running = None;
         self.animation = None;
         self.pressed = None;
         self.summon = None;
@@ -260,10 +267,34 @@ impl App {
                 self.hub_hot = false;
                 self.fail("Not ready");
             }
-            Target::Do(action) => match run(action) {
-                Ok(()) => self.close(),
-                Err(e) => self.fail(&e),
-            },
+            Target::Do(Action::AddItems) => self.fail("Not ready"),
+            Target::Do(action) => self.launch(action),
+        }
+    }
+
+    /// Starting a program can block, so it happens off this thread.
+    fn launch(&mut self, action: Action) {
+        if self.running.is_some() {
+            return;
+        }
+        let (tx, rx) = channel();
+        self.running = Some(rx);
+        let (config, target) = (self.config.clone(), self.hwnd.0 as usize);
+        std::thread::spawn(move || {
+            let _ = tx.send(actions::run(action, &config));
+            let hwnd = HWND(target as *mut _);
+            let _ = unsafe { PostMessageW(Some(hwnd), WM_ACTION_DONE, WPARAM(0), LPARAM(0)) };
+        });
+    }
+
+    fn launched(&mut self) {
+        let Some(Ok(result)) = self.running.as_ref().map(Receiver::try_recv) else {
+            return;
+        };
+        self.running = None;
+        match result {
+            Ok(()) => self.close(),
+            Err(e) => self.fail(&e),
         }
     }
 
@@ -362,11 +393,6 @@ impl App {
     }
 }
 
-/// Filled in by the `actions` module.
-fn run(_action: Action) -> Result<(), String> {
-    Err("Not ready".to_string())
-}
-
 fn settings_path() -> PathBuf {
     // MADAR_DIR points tests at a scratch folder.
     let dir = match std::env::var_os("MADAR_DIR") {
@@ -450,6 +476,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
                 a.draw();
             }
         }),
+        WM_ACTION_DONE => with_app(App::launched),
         WM_DISPLAYCHANGE => with_app(App::close),
         WM_DESTROY => {
             unsafe { PostQuitMessage(0) };
@@ -510,6 +537,7 @@ fn start(config: Config) -> windows::core::Result<HWND> {
         dragged: false,
         message: None,
         animation: None,
+        running: None,
     };
     // Draws once while hidden, so the first real frame is fast.
     app.go(Page::Root);

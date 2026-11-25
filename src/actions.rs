@@ -139,8 +139,8 @@ fn shell(file: &str, args: &str, dir: Option<&Path>) -> Result<(), String> {
 
     // The buffers above outlive the call; nothing here may move before it ends.
     unsafe {
-        let initialized = CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE)
-            .is_ok();
+        let initialized =
+            CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE).is_ok();
         let mut info = SHELLEXECUTEINFOW {
             cbSize: size_of::<SHELLEXECUTEINFOW>() as u32,
             fMask: SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI,
@@ -148,9 +148,7 @@ fn shell(file: &str, args: &str, dir: Option<&Path>) -> Result<(), String> {
             lpVerb: PCWSTR::null(),
             lpFile: PCWSTR(file.as_ptr()),
             lpParameters: PCWSTR(args.as_ptr()),
-            lpDirectory: dir
-                .as_ref()
-                .map_or(PCWSTR::null(), |d| PCWSTR(d.as_ptr())),
+            lpDirectory: dir.as_ref().map_or(PCWSTR::null(), |d| PCWSTR(d.as_ptr())),
             nShow: SW_SHOWNORMAL.0,
             hInstApp: HINSTANCE::default(),
             ..Default::default()
