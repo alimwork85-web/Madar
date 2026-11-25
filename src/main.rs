@@ -3,6 +3,7 @@
 mod actions;
 mod audio;
 mod autostart;
+mod bluetooth;
 mod config;
 mod icons;
 mod settings;
@@ -16,7 +17,7 @@ use config::{Config, Mouse};
 use settings::{Field, Problem};
 use std::cell::RefCell;
 use std::path::PathBuf;
-use std::sync::mpsc::{Receiver, channel};
+use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::time::Instant;
 use tray::Tray;
 use trigger::{MouseHook, unpack};
@@ -104,6 +105,14 @@ struct App {
     devices: Vec<Device>,
     /// Scrolling not yet worth one percent.
     scroll_rest: i32,
+    /// Reading or switching the Bluetooth radio. Kept when the wheel closes,
+    /// so a second switch never starts during the first.
+    radio: Option<Receiver<bluetooth::Answer>>,
+    radio_switching: bool,
+    /// The last answer; cleared when the wheel closes.
+    radio_state: Option<bluetooth::Answer>,
+    /// Until then a press on Bluetooth does nothing.
+    radio_lock: Option<Instant>,
 }
 
 thread_local! {
@@ -192,6 +201,7 @@ impl App {
         self.volume = None;
         self.devices.clear();
         self.scroll_rest = 0;
+        self.radio_state = None;
         self.animation = None;
         self.pressed = None;
         self.summon = None;
@@ -217,10 +227,71 @@ impl App {
             self.show_icons();
         }
         if page == Page::Sound {
+            if !self.radio_switching {
+                self.radio = Some(bluetooth::start(self.hwnd, false));
+            }
             self.sound(Order::Read);
             self.show_sound();
         }
         self.draw();
+    }
+
+    fn switch_bluetooth(&mut self) {
+        let now = Instant::now();
+        if self.radio_switching || self.radio_lock.is_some_and(|until| now < until) {
+            // A held key keeps coming; it counts as one press.
+            self.radio_lock = Some(now + bluetooth::LOCK);
+        } else {
+            self.radio_switching = true;
+            self.radio = Some(bluetooth::start(self.hwnd, true));
+        }
+        self.draw();
+    }
+
+    fn radio_answered(&mut self) {
+        use bluetooth::Answer;
+        let mut failed = false;
+        while let Some(rx) = &self.radio {
+            match rx.try_recv() {
+                Ok(answer) => {
+                    failed |= answer == Answer::Failed;
+                    if self.visible {
+                        self.radio_state = Some(answer);
+                    }
+                }
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    self.radio = None;
+                    if std::mem::take(&mut self.radio_switching) {
+                        self.radio_lock = Some(Instant::now() + bluetooth::LOCK);
+                    }
+                }
+            }
+        }
+        if !self.visible {
+            return;
+        }
+        self.draw();
+        if failed {
+            self.launch(Action::BluetoothSettings);
+        }
+    }
+
+    /// What the hub says about Bluetooth, after its name.
+    fn radio_text(&self) -> Option<String> {
+        use bluetooth::Answer;
+        let slot = self.hot.and_then(|i| self.slots.get(i))?;
+        if slot.target != Target::Do(Action::Bluetooth) {
+            return None;
+        }
+        let value = match self.radio_state? {
+            Answer::Working(true) => "Turning on...",
+            Answer::Working(false) => "Turning off...",
+            Answer::Is(true) => "On",
+            Answer::Is(false) => "Off",
+            Answer::Failed => return None,
+        };
+        Some(format!("{}\n{value}", slot.label))
     }
 
     fn sound(&mut self, order: Order) {
@@ -297,7 +368,7 @@ impl App {
             Some(s)
                 if matches!(
                     s.target,
-                    Target::Do(Action::Output(_) | Action::SoundSettings)
+                    Target::Do(Action::Output(_) | Action::SoundSettings | Action::Bluetooth)
                 ) =>
             {
                 return None;
@@ -331,10 +402,10 @@ impl App {
 
     fn draw(&mut self) {
         let hot_slot = self.hot.and_then(|i| self.slots.get(i));
-        let volume = self.volume_text();
+        let status = self.volume_text().or_else(|| self.radio_text());
         let hub = match (&self.message, hot_slot) {
             (Some(m), _) => m.as_str(),
-            _ if volume.is_some() => volume.as_deref().unwrap_or_default(),
+            _ if status.is_some() => status.as_deref().unwrap_or_default(),
             (None, Some(s)) if s.target == Target::Disabled => "Not ready",
             (None, Some(s)) => s.label.as_str(),
             (None, None) if self.page == Page::Root => "Close",
@@ -469,6 +540,12 @@ impl App {
                 let _ = unsafe {
                     PostMessageW(Some(self.hwnd), WM_OPEN_SETTINGS, WPARAM(list), LPARAM(0))
                 };
+            }
+            Target::Do(Action::Bluetooth) => {
+                // The hub shows the state, also when a digit was pressed.
+                self.hot = Some(i);
+                self.hub_hot = false;
+                self.switch_bluetooth();
             }
             Target::Do(Action::VolumeUp) => self.sound(Order::Change(audio::STEP)),
             Target::Do(Action::VolumeDown) => self.sound(Order::Change(-audio::STEP)),
@@ -849,6 +926,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
             Some(())
         }
         WM_ACTION_DONE => with_app(App::launched),
+        bluetooth::WM_RADIO => with_app(App::radio_answered),
         audio::WM_AUDIO => with_app(App::sound_answered),
         icons::WM_ICON => with_app(App::icon_loaded),
         WM_DISPLAYCHANGE => with_app(App::close),
@@ -928,6 +1006,10 @@ fn start(config: Config, unreadable: bool) -> windows::core::Result<()> {
         volume: None,
         devices: Vec::new(),
         scroll_rest: 0,
+        radio: None,
+        radio_switching: false,
+        radio_state: None,
+        radio_lock: None,
     };
     // Draws once while hidden, so the first real frame is fast.
     app.go(Page::Root);
@@ -953,6 +1035,10 @@ fn main() {
     if first.as_deref() == Some(audio::output::CHILD) {
         // The parent reads the device back, so the reason does not matter.
         std::process::exit(audio::output::child(args.next()).map_or_else(|e| e.code().0, |()| 0));
+    }
+    if first.as_deref() == Some(bluetooth::CHILD) {
+        bluetooth::child(args.next());
+        return;
     }
     if first.as_deref() == Some(icons::CHILD) {
         let side = args.next().and_then(|s| s.parse().ok());

@@ -11,7 +11,7 @@ use windows::Win32::Foundation::{POINT, RECT};
 /// Places of every wheel.
 const PLACES: usize = 8;
 /// Where the output devices start on the Sound page.
-pub const FIRST_OUTPUT: usize = 3;
+pub const FIRST_OUTPUT: usize = 4;
 
 // Logical pixels, from DESIGN.md.
 pub const PLATE_R: f32 = 170.0;
@@ -49,6 +49,8 @@ pub enum Action {
     /// An output device.
     Output(usize),
     SoundSettings,
+    Bluetooth,
+    BluetoothSettings,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -138,6 +140,7 @@ pub fn slots(page: Page, c: &Config) -> Vec<Slot> {
             slot("Volume up", '\u{E995}', Do(VolumeUp)),
             slot("Mute", '\u{E74F}', Do(Mute)),
             slot("Volume down", '\u{E993}', Do(VolumeDown)),
+            slot("Bluetooth", '\u{E702}', Do(Bluetooth)),
         ]),
     }
 }
@@ -292,11 +295,11 @@ mod tests {
         };
         let out = |i| Target::Do(Action::Output(i));
         let more = Target::Do(Action::SoundSettings);
-        assert_eq!(shown(0, 0), [Target::Empty; 5]);
+        assert_eq!(shown(0, 0), [Target::Empty; 4]);
         assert_eq!(shown(2, 0)[..3], [out(0), out(1), Target::Empty]);
-        assert_eq!(shown(5, 4), [out(0), out(1), out(2), out(3), out(4)]);
-        assert_eq!(shown(6, 1), [out(0), out(1), out(2), out(3), more]);
-        assert_eq!(shown(9, 7), [out(0), out(1), out(2), out(7), more]);
+        assert_eq!(shown(4, 3), [out(0), out(1), out(2), out(3)]);
+        assert_eq!(shown(5, 1), [out(0), out(1), out(2), more]);
+        assert_eq!(shown(9, 7), [out(0), out(1), out(7), more]);
         let icons: Vec<char> = outputs(&some(2, 1)).iter().map(|s| s.icon).collect();
         assert_eq!(icons[..2], ['\u{E7F5}', '\u{E73E}']);
     }
@@ -322,6 +325,8 @@ mod tests {
             slots(Page::Apps, &c)[0].target,
             Target::Do(Action::AddItems)
         );
+        let sound = slots(Page::Sound, &c);
+        assert_eq!(sound[3].target, Target::Do(Action::Bluetooth));
         let root = slots(Page::Root, &c);
         assert_eq!(root[7].target, Target::Open(Page::Tools));
         c.tools = vec![c.my_apps[0].clone(); 8];

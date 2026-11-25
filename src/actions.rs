@@ -24,6 +24,7 @@ const RUN: &str = "shell:::{2559a1f3-21d7-11d4-bdaf-00c04f60b9f0}";
 /// The folder behind the Start menu's list; an app id follows.
 pub const START_APPS: &str = "shell:AppsFolder\\";
 const SETTINGS: &str = "ms-settings:";
+const BLUETOOTH_SETTINGS: &str = "ms-settings:bluetooth";
 const SOUND_SETTINGS: &str = "ms-settings:sound";
 
 #[derive(Debug, PartialEq)]
@@ -90,6 +91,11 @@ fn plan(action: Action, c: &Config) -> Result<Plan, String> {
                 }),
             }
         }
+        Action::BluetoothSettings => Ok(Shell {
+            file: BLUETOOTH_SETTINGS.to_string(),
+            args: String::new(),
+            dir: None,
+        }),
         Action::SoundSettings => Ok(Shell {
             file: SOUND_SETTINGS.to_string(),
             args: String::new(),
@@ -97,6 +103,7 @@ fn plan(action: Action, c: &Config) -> Result<Plan, String> {
         }),
         // The caller handles these.
         Action::AddItems
+        | Action::Bluetooth
         | Action::VolumeUp
         | Action::VolumeDown
         | Action::Mute
@@ -294,6 +301,10 @@ mod tests {
                 dir: None,
             }
         );
+        let Plan::Shell { file, .. } = plan(Action::BluetoothSettings, &c).unwrap() else {
+            panic!("settings go through the shell");
+        };
+        assert_eq!(file, "ms-settings:bluetooth");
         let Plan::Shell { file, args, dir } = plan(Action::TaskManager, &c).unwrap() else {
             panic!("Task Manager must go through the shell");
         };
