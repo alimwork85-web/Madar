@@ -1,6 +1,7 @@
 //! Direct2D drawing of the wheel into a layered window.
 
 use super::*;
+use crate::icons;
 use windows::Win32::Foundation::{COLORREF, HWND, SIZE};
 use windows::Win32::Graphics::Direct2D::Common::*;
 use windows::Win32::Graphics::Direct2D::*;
@@ -330,7 +331,7 @@ impl Painter {
                     rt.DrawGeometry(&self.slot_shape(i, n, 4.0)?, &on_accent, 2.0, None);
                 }
             }
-            self.slot_text(rt, slot, i, n, ink)?;
+            self.slot_text(rt, slot, i, n, ink, fill)?;
         }
         let hub = self.layout(s.hub, &self.label, 92.0, 70.0)?;
         unsafe {
@@ -353,6 +354,7 @@ impl Painter {
         i: usize,
         n: usize,
         ink: &ID2D1SolidColorBrush,
+        fill: u32,
     ) -> Result<()> {
         let a = std::f32::consts::TAU * i as f32 / n as f32;
         let (x, y) = (ICON_R * a.sin(), -ICON_R * a.cos());
@@ -370,11 +372,64 @@ impl Painter {
         let digit = self.layout(&(i + 1).to_string(), &self.digit, 16.0, 24.0)?;
         unsafe {
             let plain = D2D1_DRAW_TEXT_OPTIONS_NONE;
-            rt.DrawTextLayout(pt!(x - 15.0, top), &icon, ink, plain);
+            match &slot.image {
+                Some(image) => self.image(rt, image, x, top + 12.0, fill)?,
+                None => rt.DrawTextLayout(pt!(x - 15.0, top), &icon, ink, plain),
+            }
             rt.DrawTextLayout(pt!(x + 15.0, top), &digit, ink, plain);
             // The layout centers its text in 36 px, so shift up by half the spare room.
             let label_top = top + 26.0 - (36.0 - text_h) / 2.0;
             rt.DrawTextLayout(pt!(x - width / 2.0, label_top), &label, ink, plain);
+        }
+        Ok(())
+    }
+
+    /// Program icon centered on a point, with a base when it would fade into `fill`.
+    fn image(
+        &self,
+        rt: &ID2D1DCRenderTarget,
+        image: &icons::Icon,
+        x: f32,
+        y: f32,
+        fill: u32,
+    ) -> Result<()> {
+        let half = icons::SIZE_LOGICAL / 2.0;
+        let mut m = D2D1_DRAWING_STATE_DESCRIPTION::default().transform;
+        unsafe { rt.GetTransform(&mut m) };
+        // Whole device pixels, so that the icon stays sharp.
+        let snap = |v: f32, shift: f32| ((v * m.M11 + shift).round() - shift) / m.M11;
+        let (left, top) = (snap(x - half, m.M31), snap(y - half, m.M32));
+        let rect = |grow: f32| D2D_RECT_F {
+            left: left - grow,
+            top: top - grow,
+            right: left + half * 2.0 + grow,
+            bottom: top + half * 2.0 + grow,
+        };
+        let size = D2D_SIZE_U {
+            width: image.width,
+            height: image.height,
+        };
+        let props = D2D1_BITMAP_PROPERTIES {
+            pixelFormat: D2D1_PIXEL_FORMAT {
+                format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
+            },
+            dpiX: 96.0,
+            dpiY: 96.0,
+        };
+        unsafe {
+            if let Some(c) = image.base(fill) {
+                let round = D2D1_ROUNDED_RECT {
+                    rect: rect(2.0),
+                    radiusX: 5.0,
+                    radiusY: 5.0,
+                };
+                rt.FillRoundedRectangle(&round, &rt.CreateSolidColorBrush(&color(c), None)?);
+            }
+            let data = Some(image.pixels.as_ptr().cast());
+            let bitmap = rt.CreateBitmap(size, data, image.width * 4, &props)?;
+            let linear = D2D1_BITMAP_INTERPOLATION_MODE_LINEAR;
+            rt.DrawBitmap(&bitmap, Some(&rect(0.0)), 1.0, linear, None);
         }
         Ok(())
     }
@@ -444,24 +499,30 @@ fn color(c: u32) -> D2D1_COLOR_F {
     }
 }
 
+/// WCAG relative luminance of a color.
+pub fn luminance(c: u32) -> f32 {
+    let ch = |s: u32| {
+        let v = (c >> s & 255) as f32 / 255.0;
+        if v <= 0.04045 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * ch(16) + 0.7152 * ch(8) + 0.0722 * ch(0)
+}
+
+/// WCAG contrast of two luminances.
+pub fn contrast_of(x: f32, y: f32) -> f32 {
+    (x.max(y) + 0.05) / (x.min(y) + 0.05)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn contrast(a: u32, b: u32) -> f32 {
-        let lum = |c: u32| {
-            let ch = |s: u32| {
-                let v = (c >> s & 255) as f32 / 255.0;
-                if v <= 0.04045 {
-                    v / 12.92
-                } else {
-                    ((v + 0.055) / 1.055).powf(2.4)
-                }
-            };
-            0.2126 * ch(16) + 0.7152 * ch(8) + 0.0722 * ch(0)
-        };
-        let (x, y) = (lum(a), lum(b));
-        (x.max(y) + 0.05) / (x.min(y) + 0.05)
+        contrast_of(luminance(a), luminance(b))
     }
 
     #[test]

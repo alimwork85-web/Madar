@@ -3,6 +3,8 @@
 pub mod paint;
 
 use crate::config::Config;
+use crate::icons::Icon;
+use std::rc::Rc;
 use windows::Win32::Foundation::{POINT, RECT};
 
 // Logical pixels, from DESIGN.md.
@@ -44,6 +46,8 @@ pub struct Slot {
     pub label: String,
     /// Segoe Fluent Icons code point.
     pub icon: char,
+    /// Drawn instead of `icon` once it is loaded.
+    pub image: Option<Rc<Icon>>,
     pub target: Target,
 }
 
@@ -51,6 +55,7 @@ fn slot(label: &str, icon: char, target: Target) -> Slot {
     Slot {
         label: label.to_string(),
         icon,
+        image: None,
         target,
     }
 }

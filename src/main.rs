@@ -3,6 +3,7 @@
 mod actions;
 mod autostart;
 mod config;
+mod icons;
 mod settings;
 mod tray;
 mod trigger;
@@ -71,6 +72,7 @@ struct App {
     /// The settings file could not be read; it is never replaced without asking.
     unreadable: bool,
     painter: Painter,
+    icons: icons::Icons,
     hook: MouseHook,
     tray: Tray,
     /// Message Explorer broadcasts after it restarts.
@@ -143,6 +145,7 @@ impl App {
         self.summon = None;
         self.animation = (animate && animations_on()).then(Instant::now);
         self.go(Page::Root);
+        self.icons.request(&self.config.apps, self.scale);
         unsafe {
             let _ = SetWindowPos(
                 self.hwnd,
@@ -195,7 +198,28 @@ impl App {
         self.slots = wheel::slots(page, &self.config);
         self.hot = None;
         self.hub_hot = false;
+        if page == Page::Apps {
+            self.icons.request(&self.config.apps, self.scale);
+            self.show_icons();
+        }
         self.draw();
+    }
+
+    fn show_icons(&mut self) {
+        for slot in &mut self.slots {
+            if let Target::Do(Action::App(i)) = slot.target {
+                let app = self.config.apps.get(i);
+                slot.image = app.and_then(|a| self.icons.get(&a.path));
+            }
+        }
+    }
+
+    fn icon_loaded(&mut self) {
+        self.icons.collect();
+        if self.visible && self.page == Page::Apps {
+            self.show_icons();
+            self.draw();
+        }
     }
 
     fn draw(&mut self) {
@@ -678,6 +702,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
             Some(())
         }
         WM_ACTION_DONE => with_app(App::launched),
+        icons::WM_ICON => with_app(App::icon_loaded),
         WM_DISPLAYCHANGE => with_app(App::close),
         WM_DESTROY => {
             settings::close();
@@ -733,6 +758,7 @@ fn start(config: Config, unreadable: bool) -> windows::core::Result<()> {
         config,
         unreadable,
         painter: Painter::new()?,
+        icons: icons::Icons::new(hwnd),
         hook: MouseHook::new(hwnd),
         tray: Tray::new(hwnd),
         taskbar_created: tray::taskbar_created(),
@@ -760,6 +786,15 @@ fn start(config: Config, unreadable: bool) -> windows::core::Result<()> {
 }
 
 fn main() {
+    let mut args = std::env::args().skip(1);
+    if args.next().as_deref() == Some(icons::CHILD) {
+        let side = args.next().and_then(|s| s.parse().ok());
+        if let Some(side) = side.filter(|s| (1..=icons::MAX_SIDE).contains(s)) {
+            // The parent may be gone; nobody is left to tell.
+            let _ = icons::child(side, args);
+        }
+        return;
+    }
     unsafe {
         // Held until the process ends.
         let mutex = CreateMutexW(None, false, w!("Local\\Madar.SingleInstance"));
