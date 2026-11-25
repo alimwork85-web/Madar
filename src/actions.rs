@@ -122,6 +122,7 @@ fn plan(action: Action, c: &Config) -> Result<Plan, String> {
         | Action::RestartExplorer
         | Action::ScreenOff
         | Action::ShutDown
+        | Action::RestartPc
         | Action::BrightnessUp
         | Action::BrightnessDown
         | Action::VolumeUp
@@ -180,6 +181,7 @@ pub fn run(action: Action, c: &Config) -> Result<(), String> {
     match action {
         Action::RestartExplorer => maintenance::restart_explorer(),
         Action::ShutDown => power::leave(power::OFF),
+        Action::RestartPc => power::leave(power::RESTART),
         _ => open(action, c),
     }
 }

@@ -1,4 +1,4 @@
-//! Shutting the PC down. Never forced: a program with unsaved work can stop it.
+//! Shutting the PC down and restarting it. Never forced: a program with unsaved work can stop it.
 
 use windows::Win32::Foundation::{CloseHandle, ERROR_SUCCESS, GetLastError, HANDLE};
 use windows::Win32::Security::*;
@@ -7,6 +7,7 @@ use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 use windows::core::Result;
 
 pub const OFF: EXIT_WINDOWS_FLAGS = EXIT_WINDOWS_FLAGS(EWX_SHUTDOWN.0 | EWX_POWEROFF.0);
+pub const RESTART: EXIT_WINDOWS_FLAGS = EWX_REBOOT;
 
 pub fn leave(how: EXIT_WINDOWS_FLAGS) -> std::result::Result<(), String> {
     let reason = SHUTDOWN_REASON(SHTDN_REASON_MAJOR_OTHER.0 | SHTDN_REASON_FLAG_PLANNED.0);
@@ -15,7 +16,7 @@ pub fn leave(how: EXIT_WINDOWS_FLAGS) -> std::result::Result<(), String> {
         .map_err(|_| "Windows refused".to_string())
 }
 
-/// Windows wants this right switched on before the PC can be shut down.
+/// Windows wants this right switched on before the PC can be shut down or restarted.
 fn allow() -> Result<()> {
     unsafe {
         let mut token = HANDLE::default();
@@ -50,7 +51,9 @@ mod tests {
 
     #[test]
     fn never_forced() {
-        assert_eq!(OFF.0 & (EWX_FORCE.0 | EWX_FORCEIFHUNG.0), 0);
+        for how in [OFF, RESTART] {
+            assert_eq!(how.0 & (EWX_FORCE.0 | EWX_FORCEIFHUNG.0), 0);
+        }
         assert_ne!(OFF.0 & EWX_POWEROFF.0, 0);
     }
 

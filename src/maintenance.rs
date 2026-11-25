@@ -20,6 +20,7 @@ pub fn texts(action: Action) -> Option<(&'static str, &'static str)> {
             Some(("Folders will close. Press again", "Restarting Explorer..."))
         }
         Action::ShutDown => Some(("Shut down? Press again", "Shutting down...")),
+        Action::RestartPc => Some(("Restart the PC? Press again", "Restarting...")),
         _ => None,
     }
 }
