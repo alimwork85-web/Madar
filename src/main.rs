@@ -584,8 +584,8 @@ impl App {
             }
             // A press during the restart changes nothing.
             Target::Do(Action::RestartExplorer) => self.message = message,
-            Target::Do(Action::VolumeUp) => self.sound(Order::Change(audio::STEP)),
-            Target::Do(Action::VolumeDown) => self.sound(Order::Change(-audio::STEP)),
+            Target::Do(Action::VolumeUp) => self.sound(Order::Step(true)),
+            Target::Do(Action::VolumeDown) => self.sound(Order::Step(false)),
             Target::Do(Action::Mute) => self.sound(Order::ToggleMute),
             Target::Do(Action::Output(i)) => {
                 if let Some(d) = self.devices.get(i).filter(|d| !d.current) {

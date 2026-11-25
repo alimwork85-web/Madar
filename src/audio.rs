@@ -18,7 +18,7 @@ use windows::core::HRESULT;
 
 /// An answer waits in `Audio`.
 pub const WM_AUDIO: u32 = WM_APP + 14;
-/// Percent per wheel notch or key press.
+/// Percent per wheel notch or arrow key.
 pub const STEP: i32 = 2;
 const NOTCH: i32 = 120;
 
@@ -30,6 +30,8 @@ pub struct Volume {
 
 pub enum Order {
     Read,
+    /// One press, up or down.
+    Step(bool),
     /// Percent to add.
     Change(i32),
     ToggleMute,
@@ -126,10 +128,17 @@ fn volume(devices: &IMMDeviceEnumerator, order: Order) -> windows::core::Result<
         let muted = volume.GetMute()?.as_bool();
         match order {
             Order::Read | Order::Choose(_) => {}
-            Order::Change(by) => {
-                let level = changed(volume.GetMasterVolumeLevelScalar()?, by);
+            Order::Change(_) | Order::Step(_) => {
+                let level = volume.GetMasterVolumeLevelScalar()?;
+                let (level, up) = match order {
+                    Order::Change(by) => (changed(level, by), by > 0),
+                    _ => {
+                        let up = matches!(order, Order::Step(true));
+                        (step(percent(level), up) as f32 / 100.0, up)
+                    }
+                };
                 volume.SetMasterVolumeLevelScalar(level, none)?;
-                if muted && by > 0 {
+                if muted && up {
                     volume.SetMute(false, none)?;
                 }
             }
@@ -148,6 +157,16 @@ fn percent(level: f32) -> i32 {
 
 fn changed(level: f32, by: i32) -> f32 {
     (percent(level) + by).clamp(0, 100) as f32 / 100.0
+}
+
+/// The next of 0, 5, 10, 20, 30 up to 100. Low levels differ more.
+pub fn step(now: i32, up: bool) -> i32 {
+    let mut levels = [0, 5].into_iter().chain((10..=100).step_by(10));
+    if up {
+        levels.find(|&l| l > now).unwrap_or(100)
+    } else {
+        levels.take_while(|&l| l < now).last().unwrap_or(0)
+    }
 }
 
 /// Percent in a wheel message. Touchpads send small deltas, so what is left
@@ -173,6 +192,14 @@ mod tests {
         assert_eq!(changed(0.99, 2), 1.0);
         assert_eq!(changed(0.01, -2), 0.0);
         assert_eq!(percent(0.29), 29);
+    }
+
+    #[test]
+    fn steps() {
+        let next = |up, from: [i32; 7]| from.map(|now| step(now, up));
+        let from = [0, 3, 5, 10, 34, 95, 100];
+        assert_eq!(next(true, from), [5, 5, 10, 20, 40, 100, 100]);
+        assert_eq!(next(false, from), [0, 0, 0, 5, 30, 90, 90]);
     }
 
     #[test]
