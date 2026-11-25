@@ -20,7 +20,7 @@ Signature: the eight-slot wheel and the eight-slot app icon are the same shape.
 | Label / digit | 13 / 12, Segoe UI Variable Text, regular |
 | First slot | centered at 12 o'clock, then clockwise |
 
-Order: My Apps, Apps, Sites, Google, System, Settings, Sound & Light, Tools. A folder replaces the slots in place. Every page shows 8 places.
+Order: My Apps, Apps, Sites, Google, System, Menu (opens Windows Settings), Sound & Light, Tools. A folder replaces the slots in place. Every page shows 8 places.
 My Apps holds the programs the user made, Tools the user's tools, Apps all others. They work alike and a program can move between them.
 With Show names off, every slot shows its icon alone, 32 and centered, without digit and label. The digits still work and the hub still names the slot.
 Sound & Light (the Sound page): Volume up, Mute (Unmute when muted), Volume down, Bluetooth, Brightness up, Brightness down, then the output devices by name, the current one with a check mark. With more than 2 devices: the current one, then `More`, which opens Windows sound settings. While the page shows, the devices and the volume are read again every second. Changing the volume or the device keeps the wheel open. The calls device is never changed.

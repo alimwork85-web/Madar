@@ -112,7 +112,7 @@ pub fn slots(page: Page, c: &Config) -> Vec<Slot> {
             slot("Sites", '\u{E774}', Open(Page::Sites)),
             slot("Google", '\u{E721}', Do(Google)),
             slot("System", '\u{E770}', Open(Page::System)),
-            slot("Settings", '\u{E713}', Do(Settings)),
+            slot("Menu", '\u{E713}', Do(Settings)),
             slot("Sound & Light", '\u{E767}', Open(Page::Sound)),
             slot("Tools", '\u{EC7A}', Open(Page::Tools)),
         ],

@@ -34,7 +34,7 @@ Every page has eight places. At the top level, clockwise from the top:
 | Sites | Your web links, up to 8 |
 | Google | Google, or the results for the copied text |
 | System | Run, Task Manager, Restart Explorer, Admin Terminal, Downloads, Shut down, Restart PC, Screen off |
-| Settings | Opens Settings in Windows |
+| Menu | Opens Settings in Windows |
 | Sound & Light | Volume, mute, Bluetooth, brightness and the output devices |
 | Tools | Your tools, up to 8 |
 
