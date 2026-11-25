@@ -15,12 +15,13 @@ Developer: Ali Alhumedi.
 - Click a slot to open it. Click outside the wheel to close it.
 - Hold the summon button and drag, then release on a slot.
 - A digit opens the slot with that number. The number pad works too.
-- Arrows, Tab and Shift+Tab move between slots.
+- Arrows, Tab and Shift+Tab move between slots. On the Sound page Up and Down change the volume instead.
 - Enter opens the highlighted slot. With none highlighted it works like Backspace.
 - Backspace goes back from a folder, and closes the wheel at the top level.
 - Esc closes the wheel. Clicking the hub works like Backspace.
 
 The hub shows Close at the top level and Back inside a folder. A highlighted slot shows its name there, or Not ready.
+On the Sound page the hub shows the level as well, under the slot's name.
 
 ## Places
 
@@ -34,12 +35,32 @@ Every page has eight places. At the top level, clockwise from the top:
 | Google | Not ready |
 | System | Run, Task Manager and Maintenance |
 | Settings | Opens Settings in Windows |
-| Sound | Not ready |
+| Sound | Volume, mute and the output devices |
 | Bluetooth | Not ready |
 
-Google, Sound, Bluetooth and System > Maintenance are not ready yet. They show Not ready when picked.
+Google, Bluetooth and System > Maintenance are not ready yet. They show Not ready when picked.
 While a list is not full, its next free place reads Add app or Add site and opens Settings at that list.
 All other free places stay empty and the keyboard skips them.
+
+## Sound
+
+Sound opens a page of its own. Clockwise from the top: Volume up, Mute (Unmute while muted), Volume down,
+then the connected output devices by name, the one in use with a check mark.
+Only connected devices are listed: the list is read when the page opens and after choosing a device.
+A Bluetooth device that is paired but not connected is not listed.
+With more than 5 devices the page shows 4, the one in use among them, and More, which opens the sound page of Windows Settings.
+
+The mouse wheel changes the volume by 2% a notch anywhere on the Sound page, and over the Sound slot at the top level.
+The wheel stays open after a change. Raising the volume unmutes.
+On the Sound page Up and Down change the volume; Left, Right, Tab and Shift+Tab move between slots.
+
+The hub shows the level as a percentage, or Muted, or No output device, under the name of the highlighted slot.
+A highlighted device shows its name instead.
+
+Choosing a device makes it the Windows default output. The default for calls is not changed.
+Windows documents no call for this, so Madar uses an undocumented one in a short child process, reads the default back,
+and opens the sound page of Windows Settings when the change did not happen.
+The interface layout comes from com-policy-config by sidit77, under the MIT licence.
 
 ## Settings
 
