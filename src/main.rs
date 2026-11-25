@@ -1,5 +1,6 @@
 #![windows_subsystem = "windows"]
 
+mod actions;
 mod config;
 mod trigger;
 mod wheel;
