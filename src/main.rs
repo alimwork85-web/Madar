@@ -212,7 +212,7 @@ impl App {
         self.slots = wheel::slots(page, &self.config);
         self.hot = None;
         self.hub_hot = false;
-        if matches!(page, Page::MyApps | Page::Apps) {
+        if matches!(page, Page::MyApps | Page::Apps | Page::Tools) {
             self.icons.request(&self.config, self.scale);
             self.show_icons();
         }
@@ -312,6 +312,7 @@ impl App {
             let app = match slot.target {
                 Target::Do(Action::MyApp(i)) => self.config.my_apps.get(i),
                 Target::Do(Action::App(i)) => self.config.apps.get(i),
+                Target::Do(Action::Tool(i)) => self.config.tools.get(i),
                 _ => None,
             };
             if app.is_some() {
@@ -322,7 +323,7 @@ impl App {
 
     fn icon_loaded(&mut self) {
         self.icons.collect();
-        if self.visible && matches!(self.page, Page::MyApps | Page::Apps) {
+        if self.visible && matches!(self.page, Page::MyApps | Page::Apps | Page::Tools) {
             self.show_icons();
             self.draw();
         }
@@ -462,7 +463,8 @@ impl App {
                 let list = match self.page {
                     Page::MyApps => 1,
                     Page::Apps => 2,
-                    _ => 3,
+                    Page::Tools => 3,
+                    _ => 4,
                 };
                 let _ = unsafe {
                     PostMessageW(Some(self.hwnd), WM_OPEN_SETTINGS, WPARAM(list), LPARAM(0))
@@ -663,6 +665,8 @@ fn changed(old: &Config, new: &Config) -> Field {
         Field::MyApps
     } else if old.apps != new.apps {
         Field::Apps
+    } else if old.tools != new.tools {
+        Field::Tools
     } else {
         Field::Sites
     }

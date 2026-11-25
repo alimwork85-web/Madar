@@ -1,7 +1,7 @@
 //! Settings file (`config.json`): parse, validate, load and save.
 //!
 //! JSON shape: a single object with `hotkey`, `mouse`, `theme`, `autostart`,
-//! `show_names`, `my_apps`, `apps` and `sites`. Unknown keys are ignored; missing keys take the default.
+//! `show_names`, `my_apps`, `apps`, `tools` and `sites`. Unknown keys are ignored; missing keys take the default.
 
 use serde_json::{Map, Value};
 use std::io::{Read, Write};
@@ -57,6 +57,7 @@ pub struct Config {
     pub show_names: bool,
     pub my_apps: Vec<App>,
     pub apps: Vec<App>,
+    pub tools: Vec<App>,
     pub sites: Vec<Site>,
 }
 
@@ -70,6 +71,7 @@ impl Default for Config {
             show_names: true,
             my_apps: Vec::new(),
             apps: Vec::new(),
+            tools: Vec::new(),
             sites: Vec::new(),
         }
     }
@@ -147,6 +149,9 @@ pub fn parse(text: &str) -> Result<Config, String> {
     }
     if let Some(v) = obj.get("apps") {
         c.apps = parse_apps(v, "apps")?;
+    }
+    if let Some(v) = obj.get("tools") {
+        c.tools = parse_apps(v, "tools")?;
     }
     if let Some(v) = obj.get("sites") {
         c.sites = parse_sites(v)?;
@@ -283,6 +288,7 @@ fn to_value(c: &Config) -> Value {
     root.insert("show_names".into(), Value::Bool(c.show_names));
     root.insert("my_apps".into(), Value::Array(apps(&c.my_apps)));
     root.insert("apps".into(), Value::Array(apps(&c.apps)));
+    root.insert("tools".into(), Value::Array(apps(&c.tools)));
     root.insert("sites".into(), Value::Array(sites));
     Value::Object(root)
 }
@@ -413,6 +419,11 @@ mod tests {
                     args: String::new(),
                 },
             ],
+            tools: vec![App {
+                label: "أداة".to_string(),
+                path: r"shell:AppsFolder\Some.Tool_x!App".to_string(),
+                args: String::new(),
+            }],
             sites: vec![
                 Site {
                     label: "بحث".to_string(),
@@ -435,7 +446,8 @@ mod tests {
         assert_eq!(c.mouse, Mouse::Back);
         assert_eq!(c.theme, "Midnight");
         assert!(!c.autostart);
-        assert!(c.my_apps.is_empty() && c.apps.is_empty() && c.sites.is_empty());
+        assert!(c.my_apps.is_empty() && c.apps.is_empty());
+        assert!(c.tools.is_empty() && c.sites.is_empty());
         assert!(c.show_names);
         assert_eq!(THEMES.len(), 8);
         assert_eq!(THEMES[1], "Midnight");

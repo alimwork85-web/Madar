@@ -56,9 +56,12 @@ fn plan(action: Action, c: &Config) -> Result<Plan, String> {
             args: String::new(),
             dir: None,
         }),
-        Action::MyApp(i) | Action::App(i) => {
-            let mine = matches!(action, Action::MyApp(_));
-            let apps = if mine { &c.my_apps } else { &c.apps };
+        Action::MyApp(i) | Action::App(i) | Action::Tool(i) => {
+            let apps = match action {
+                Action::MyApp(_) => &c.my_apps,
+                Action::Tool(_) => &c.tools,
+                _ => &c.apps,
+            };
             let app = apps.get(i).ok_or("Item not found")?;
             if app.args.contains('\0') {
                 return Err("Invalid arguments".to_string());
@@ -327,6 +330,12 @@ mod tests {
             panic!("a program goes through the shell");
         };
         assert!(file.ends_with("mine"));
+        assert_eq!(err(Action::Tool(0), &c), "Item not found");
+        c.tools = vec![app("shell:AppsFolder\\tool", "")];
+        let Plan::Shell { file, .. } = plan(Action::Tool(0), &c).unwrap() else {
+            panic!("a program goes through the shell");
+        };
+        assert!(file.ends_with("tool"));
     }
 
     #[test]

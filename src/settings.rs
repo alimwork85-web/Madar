@@ -36,6 +36,7 @@ pub enum Field {
     Names,
     MyApps,
     Apps,
+    Tools,
     Sites,
 }
 
@@ -48,7 +49,7 @@ impl Field {
             Self::Autostart => 3,
             Self::Names => 4,
             // One list is shown at a time.
-            Self::MyApps | Self::Apps | Self::Sites => 5,
+            Self::MyApps | Self::Apps | Self::Tools | Self::Sites => 5,
         }
     }
 }
@@ -105,7 +106,7 @@ const ID_THEME: u16 = 102;
 const ID_AUTOSTART: u16 = 103;
 const ID_NAMES: u16 = 104;
 const TAB_ID: u16 = 110;
-const TAB_TEXT: [&str; 3] = ["M&y Apps", "A&pps", "S&ites"];
+const TAB_TEXT: [&str; 4] = ["M&y Apps", "A&pps", "Too&ls", "S&ites"];
 const ITEMS_ID: u16 = 120;
 const BUTTONS: u16 = 200;
 const BUTTON_TEXT: [&str; 7] = [
@@ -115,7 +116,7 @@ const BUTTON_TEXT: [&str; 7] = [
     "&Remove",
     "Move &up",
     "Move &down",
-    "Move &to Apps",
+    "Move &to...",
 ];
 const ID_BROWSE: u16 = 300;
 const ID_START: u16 = 301;
@@ -168,7 +169,7 @@ struct Widgets {
     theme: HWND,
     autostart: HWND,
     names: HWND,
-    tabs: [HWND; 3],
+    tabs: [HWND; 4],
     items: HWND,
     buttons: [HWND; 7],
     label: [HWND; 4],
@@ -608,7 +609,7 @@ fn setup(hwnd: HWND) -> bool {
     let (big, small, owned) = load_icons();
 
     let w = unsafe { build_controls(hwnd) };
-    if w.all().len() != 26 {
+    if w.all().len() != 27 {
         free(w, font, big, small, owned);
         return false;
     }
@@ -974,7 +975,7 @@ fn arrange(s: &State, width: i32, height: i32) -> Vec<(HWND, i32, i32, i32, i32)
     }
 
     out.push((s.w.label[3], xl, y, g.label, g.btn_h));
-    let tab_w = (cw - 2 * g.gap) / 3;
+    let tab_w = (cw - 3 * g.gap) / 4;
     for (i, tab) in s.w.tabs.into_iter().enumerate() {
         out.push((tab, xc + i as i32 * (tab_w + g.gap), y, tab_w, g.btn_h));
     }
@@ -1028,7 +1029,7 @@ fn enabled(list: List, c: &Config, sel: Option<usize>) -> [bool; 7] {
         sel.is_some(),
         up_index(sel).is_some(),
         down_index(sel, len).is_some(),
-        sel.is_some() && list.other().is_some_and(|o| o.len(c) < MAX_ITEMS),
+        sel.is_some() && list.others().any(|o| o.len(c) < MAX_ITEMS),
     ]
 }
 
@@ -1063,7 +1064,6 @@ fn refresh(sel: Option<usize>) {
     for (tab, l) in w.tabs.into_iter().zip(LISTS) {
         check(tab, l == list);
     }
-    set_text(w.buttons[MOVE], list.move_text());
     let labels = list.labels(&c);
     fill(w.items, labels.iter());
     select(w.items, sel, labels.len());
@@ -1167,7 +1167,11 @@ fn item(action: usize) {
             }
         }
         MOVE => {
-            if let (Some(index), Some(other)) = (sel, list.other()) {
+            if let (Some(index), Some(other)) = (sel, pick_list(owner, w.buttons[MOVE], list, &c)) {
+                // The window can change or close while the menu is open.
+                if with_state(|s| s.list) != Some(list) || list_sel(w.items) != sel {
+                    return;
+                }
                 let after = after_remove(index, list.len(&c));
                 apply(list.field(), after, |c| {
                     if let Some(made) = list.take(c, index) {
@@ -1182,6 +1186,31 @@ fn item(action: usize) {
     // These showed another window; focus returns to the list.
     if matches!(action, ADD | EDIT | REMOVE) {
         let _ = unsafe { SetFocus(Some(w.items)) };
+    }
+}
+
+/// The menu under the Move to button. A full list is grayed.
+fn pick_list(owner: HWND, button: HWND, list: List, c: &Config) -> Option<List> {
+    let mut rc = RECT::default();
+    unsafe {
+        GetWindowRect(button, &mut rc).ok()?;
+        let menu = CreatePopupMenu().ok()?;
+        for (i, l) in LISTS.into_iter().enumerate() {
+            if list.others().any(|o| o == l) {
+                let full = l.len(c) >= MAX_ITEMS;
+                let state = if full { MF_GRAYED } else { MF_ENABLED };
+                let text = HSTRING::from(TAB_TEXT[i]);
+                let _ = AppendMenuW(menu, MF_STRING | state, i + 1, &text);
+            }
+        }
+        let flags = TPM_RETURNCMD | TPM_NONOTIFY | TPM_VERTICAL;
+        let near = TPMPARAMS {
+            cbSize: size_of::<TPMPARAMS>() as u32,
+            rcExclude: rc,
+        };
+        let id = TrackPopupMenuEx(menu, flags.0, rc.left, rc.bottom, owner, Some(&near));
+        let _ = DestroyMenu(menu);
+        LISTS.get((id.0 as usize).wrapping_sub(1)).copied()
     }
 }
 
@@ -1209,16 +1238,18 @@ fn add_from_start(owner: HWND, host: Host, list: List) {
 pub enum List {
     MyApps,
     Apps,
+    Tools,
     Sites,
 }
 
-pub const LISTS: [List; 3] = [List::MyApps, List::Apps, List::Sites];
+pub const LISTS: [List; 4] = [List::MyApps, List::Apps, List::Tools, List::Sites];
 
 impl List {
     fn field(self) -> Field {
         match self {
             Self::MyApps => Field::MyApps,
             Self::Apps => Field::Apps,
+            Self::Tools => Field::Tools,
             Self::Sites => Field::Sites,
         }
     }
@@ -1228,6 +1259,7 @@ impl List {
         match self {
             Self::MyApps => names(&c.my_apps),
             Self::Apps => names(&c.apps),
+            Self::Tools => names(&c.tools),
             Self::Sites => c.sites.iter().map(|s| s.label.clone()).collect(),
         }
     }
@@ -1236,6 +1268,7 @@ impl List {
         match self {
             Self::MyApps => c.my_apps.len(),
             Self::Apps => c.apps.len(),
+            Self::Tools => c.tools.len(),
             Self::Sites => c.sites.len(),
         }
     }
@@ -1246,6 +1279,7 @@ impl List {
         match self {
             Self::MyApps => c.my_apps.get(index).map(of),
             Self::Apps => c.apps.get(index).map(of),
+            Self::Tools => c.tools.get(index).map(of),
             Self::Sites => c.sites.get(index).map(|s| {
                 [
                     s.label.clone(),
@@ -1267,6 +1301,7 @@ impl List {
         match (self, made) {
             (Self::MyApps, Made::App(a)) => set(&mut c.my_apps, index, a),
             (Self::Apps, Made::App(a)) => set(&mut c.apps, index, a),
+            (Self::Tools, Made::App(a)) => set(&mut c.tools, index, a),
             (Self::Sites, Made::Site(s)) => set(&mut c.sites, index, s),
             // The Add window makes the kind its list holds.
             _ => {}
@@ -1277,6 +1312,7 @@ impl List {
         (index < self.len(c)).then(|| match self {
             Self::MyApps => Made::App(c.my_apps.remove(index)),
             Self::Apps => Made::App(c.apps.remove(index)),
+            Self::Tools => Made::App(c.tools.remove(index)),
             Self::Sites => Made::Site(c.sites.remove(index)),
         })
     }
@@ -1286,25 +1322,15 @@ impl List {
             match self {
                 Self::MyApps => c.my_apps.swap(a, b),
                 Self::Apps => c.apps.swap(a, b),
+                Self::Tools => c.tools.swap(a, b),
                 Self::Sites => c.sites.swap(a, b),
             }
         }
     }
 
-    /// Where Move to sends an item.
-    fn other(self) -> Option<Self> {
-        match self {
-            Self::MyApps => Some(Self::Apps),
-            Self::Apps => Some(Self::MyApps),
-            Self::Sites => None,
-        }
-    }
-
-    fn move_text(self) -> &'static str {
-        match self {
-            Self::Apps => "Move &to My Apps",
-            _ => "Move &to Apps",
-        }
+    /// Where Move to can send an item: the other lists of programs.
+    fn others(self) -> impl Iterator<Item = Self> {
+        (LISTS.into_iter()).filter(move |&l| self != Self::Sites && l != Self::Sites && l != self)
     }
 
     fn title(self, editing: bool) -> &'static str {
@@ -1919,7 +1945,9 @@ fn form_ok() {
     // A second OK must not leave the previous round's errors on screen.
     with_form(|f| f.errors = Default::default());
     let checked = match list {
-        List::MyApps | List::Apps => check_app(&texts[0], &texts[1], &texts[2]).map(Made::App),
+        List::MyApps | List::Apps | List::Tools => {
+            check_app(&texts[0], &texts[1], &texts[2]).map(Made::App)
+        }
         List::Sites => check_site(&texts[0], &texts[1], &texts[2]).map(Made::Site),
     };
     match checked {
@@ -2579,10 +2607,18 @@ mod tests {
         List::Sites.put(&mut c, 0, Made::App(app("x")));
         assert!(c.sites.is_empty());
         c.apps = vec![app("z"); MAX_ITEMS];
-        assert!(!enabled(List::MyApps, &c, Some(0))[MOVE]);
+        assert!(enabled(List::MyApps, &c, Some(0))[MOVE]);
         assert!(!enabled(List::Apps, &c, Some(0))[ADD]);
         assert!(!enabled(List::Sites, &c, None)[START]);
         List::Apps.swap(&mut c, 0, 99);
-        assert_eq!(List::Apps.other(), Some(List::MyApps));
+        // One of the two targets is full, then both.
+        c.tools = vec![app("t")];
+        assert!(enabled(List::Tools, &c, Some(0))[MOVE]);
+        c.my_apps = vec![app("m"); MAX_ITEMS];
+        assert!(!enabled(List::Tools, &c, Some(0))[MOVE]);
+        assert!(enabled(List::Tools, &c, Some(0))[ADD]);
+        let to: Vec<_> = List::Tools.others().collect();
+        assert_eq!(to, [List::MyApps, List::Apps]);
+        assert_eq!(List::Sites.others().count(), 0);
     }
 }

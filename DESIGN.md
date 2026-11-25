@@ -20,8 +20,8 @@ Signature: the eight-slot wheel and the eight-slot app icon are the same shape.
 | Label / digit | 13 / 12, Segoe UI Variable Text, regular |
 | First slot | centered at 12 o'clock, then clockwise |
 
-Order: My Apps, Apps, Sites, Google, System, Settings, Sound, Bluetooth. A folder replaces the slots in place. Every page shows 8 places.
-My Apps holds the programs the user made, Apps all others; one program can move between them.
+Order: My Apps, Apps, Sites, Google, System, Settings, Sound, Tools. A folder replaces the slots in place. Every page shows 8 places.
+My Apps holds the programs the user made, Tools the user's tools, Apps all others. They work alike and a program can move between them.
 With Show names off, every slot shows its icon alone, 32 and centered, without digit and label. The digits still work and the hub still names the slot.
 Sound: Volume up, Mute (Unmute when muted), Volume down, then the output devices by name, the current one with a check mark. With more than 5 devices: 4, the current one among them, then `More`, which opens Windows sound settings. Changing the volume or the device keeps the wheel open. The calls device is never changed.
 The mouse wheel changes the volume by 2% a notch anywhere on the Sound page and over the Sound slot of the first page; raising it unmutes. On the Sound page Up and Down change the volume; Left, Right and Tab move. The hub shows `40%` or `Muted` under the slot's name, the full name of a device, or `No output device`.
@@ -34,7 +34,7 @@ Hub text: `Close` at the root, `Back` inside a folder, the slot name while hover
 | Hover or keyboard focus | accent color, on-accent text. No motion |
 | Pressed | accent color, 2 px inner outline in on-accent |
 | Disabled | hub color, text at 60%, label `Not ready` in the hub on hover |
-| First free place in My Apps, Apps or Sites | `Add app` or `Add site`, opens Settings at that list |
+| First free place in My Apps, Apps, Tools or Sites | `Add app` or `Add site`, opens Settings at that list |
 | Other free places | slot color at 35% over the plate, no text, no hover, skipped by the keyboard |
 | Error | message in the hub for 4 s, wheel stays open |
 
@@ -59,7 +59,7 @@ Keyboard: none. Mouse: opacity and 0.96 to 1 scale over 120 ms, ease-out. Closin
 
 ## Settings window
 Native controls, 480 x 560, resizable, Windows light or dark title bar. One column, labels left, controls right, 16 px margin, 36 px rows.
-Order: Shortcut, Mouse button, Theme, Start with Windows, Show names, then a switch (My Apps, Apps, Sites) over one list. Buttons: Add, Add from Start, Edit, Remove, Move up, Move down, Move to Apps or Move to My Apps.
+Order: Shortcut, Mouse button, Theme, Start with Windows, Show names, then a switch (My Apps, Apps, Tools, Sites) over one list. Buttons: Add, Add from Start, Edit, Remove, Move up, Move down, Move to... The last opens a menu of the other two program lists, a full one grayed; it is off for Sites and when both are full.
 Changes save at once. An error appears under its control. Every control is reachable with Tab and has an access key.
 
 ## Tray menu

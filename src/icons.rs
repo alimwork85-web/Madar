@@ -119,7 +119,7 @@ impl Icons {
     /// Starts loading the icons that are not in the cache yet.
     pub fn request(&mut self, c: &Config, scale: f32) {
         self.collect();
-        let apps = || c.my_apps.iter().chain(&c.apps);
+        let apps = || c.my_apps.iter().chain(&c.apps).chain(&c.tools);
         let size = if c.show_names { WITH_NAME } else { ALONE };
         let side = (size * scale).round() as u32;
         if side != self.side {

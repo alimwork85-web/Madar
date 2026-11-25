@@ -27,6 +27,7 @@ pub enum Page {
     System,
     MyApps,
     Apps,
+    Tools,
     Sites,
     Sound,
 }
@@ -38,6 +39,7 @@ pub enum Action {
     Settings,
     MyApp(usize),
     App(usize),
+    Tool(usize),
     Site(usize),
     /// The first free place of a folder.
     AddItems,
@@ -101,7 +103,7 @@ pub fn slots(page: Page, c: &Config) -> Vec<Slot> {
             slot("System", '\u{E770}', Open(Page::System)),
             slot("Settings", '\u{E713}', Do(Settings)),
             slot("Sound", '\u{E767}', Open(Page::Sound)),
-            slot("Bluetooth", '\u{E702}', Disabled),
+            slot("Tools", '\u{EC7A}', Open(Page::Tools)),
         ],
         Page::System => fill(vec![
             slot("Run", '\u{E756}', Do(Run)),
@@ -117,6 +119,12 @@ pub fn slots(page: Page, c: &Config) -> Vec<Slot> {
         Page::Apps => folder(
             (c.apps.iter().enumerate())
                 .map(|(i, a)| slot(&a.label, '\u{ECAA}', Do(App(i))))
+                .collect(),
+            "Add app",
+        ),
+        Page::Tools => folder(
+            (c.tools.iter().enumerate())
+                .map(|(i, a)| slot(&a.label, '\u{ECAA}', Do(Tool(i))))
                 .collect(),
             "Add app",
         ),
@@ -314,6 +322,12 @@ mod tests {
             slots(Page::Apps, &c)[0].target,
             Target::Do(Action::AddItems)
         );
+        let root = slots(Page::Root, &c);
+        assert_eq!(root[7].target, Target::Open(Page::Tools));
+        c.tools = vec![c.my_apps[0].clone(); 8];
+        let tools = slots(Page::Tools, &c);
+        assert_eq!(tools.len(), 8);
+        assert_eq!(tools[7].target, Target::Do(Action::Tool(7)));
         c.sites.push(crate::config::Site {
             label: "قوقل".into(),
             url: "https://google.com".into(),
