@@ -109,7 +109,37 @@ pub fn font(h: HWND, font: HFONT) {
         }
         if list {
             send(h, LB_SETITEMHEIGHT, 0, item);
+        } else if class_is(h, "Edit") {
+            let same = SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE;
+            let _ = SetWindowPos(h, None, 0, 0, 0, 0, same | SWP_FRAMECHANGED);
         }
+    }
+}
+
+/// The part of an edit's window that its line of text takes.
+fn text_room(h: HWND, rc: &RECT) -> RECT {
+    let mut m = TEXTMETRICW::default();
+    unsafe {
+        let dc = GetDC(Some(h));
+        let font = HGDIOBJ(send(h, WM_GETFONT, 0, 0) as *mut core::ffi::c_void);
+        let old = SelectObject(dc, font);
+        let _ = GetTextMetricsW(dc, &mut m);
+        SelectObject(dc, old);
+        ReleaseDC(Some(h), dc);
+    }
+    centered(rc, m.tmHeight, px(4, dpi_of(h)))
+}
+
+/// `rc` with `side` off the left and right, and a line of `line` in the middle.
+fn centered(rc: &RECT, line: i32, side: i32) -> RECT {
+    // The border is never covered, however tall the line.
+    let spare = (rc.bottom - rc.top - line).max(2);
+    let top = rc.top + spare / 2;
+    RECT {
+        left: rc.left + side,
+        top,
+        right: (rc.right - side).max(rc.left + side),
+        bottom: (rc.bottom - (spare - spare / 2)).max(top),
     }
 }
 
@@ -342,9 +372,17 @@ unsafe extern "system" fn frame_proc(
     _: usize,
 ) -> LRESULT {
     unsafe {
+        let edit = class_is(h, "Edit");
+        if edit && msg == WM_NCCALCSIZE {
+            // Both forms of this message start with the window's rectangle.
+            let rc = &mut *(l.0 as *mut RECT);
+            *rc = text_room(h, rc);
+            return LRESULT(0);
+        }
         let done = DefSubclassProc(h, msg, w, l);
         match msg {
-            // An edit draws its border along with its text.
+            // A click beside the text is still a click in the box.
+            WM_NCHITTEST if edit => return LRESULT(HTCLIENT as isize),
             WM_NCPAINT | WM_PAINT => {
                 let p = colors();
                 let dc = GetWindowDC(Some(h));
@@ -357,7 +395,13 @@ unsafe extern "system" fn frame_proc(
                     bottom: rc.bottom - rc.top,
                 };
                 let edge = if focused(h) { p.accent } else { border(p) };
-                FrameRect(dc, &own, brush(dc, edge));
+                if edit {
+                    let room = text_room(h, &own);
+                    ExcludeClipRect(dc, room.left, room.top, room.right, room.bottom);
+                    frame(dc, &own, 1, edge, p.slot);
+                } else {
+                    FrameRect(dc, &own, brush(dc, edge));
+                }
                 ReleaseDC(Some(h), dc);
             }
             WM_SETFOCUS | WM_KILLFOCUS => {
@@ -475,6 +519,23 @@ mod tests {
             least("focus in list", p.accent, p.slot, 3.0);
             least("disabled", p.disabled, p.plate, 3.0);
         }
+    }
+
+    #[test]
+    fn text_sits_in_the_middle() {
+        let rc = RECT {
+            left: 10,
+            top: 100,
+            right: 110,
+            bottom: 136,
+        };
+        let r = centered(&rc, 25, 6);
+        assert_eq!((r.left, r.top, r.right, r.bottom), (16, 105, 104, 130));
+        // A line taller than the box, and a box with no size yet.
+        let r = centered(&rc, 60, 6);
+        assert_eq!((r.top, r.bottom), (101, 135));
+        let r = centered(&RECT::default(), 25, 6);
+        assert!(r.right >= r.left && r.bottom >= r.top);
     }
 
     #[test]

@@ -426,8 +426,9 @@ unsafe fn make(parent: HWND, class: PCWSTR, text: &str, style: WINDOW_STYLE, id:
     }
 }
 
+/// No border: `look` draws it and centers the text inside.
 fn edit_style(read_only: bool) -> WINDOW_STYLE {
-    let base = WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | WINDOW_STYLE(ES_AUTOHSCROLL as u32);
+    let base = WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(ES_AUTOHSCROLL as u32);
     if read_only {
         base | WINDOW_STYLE(ES_READONLY as u32)
     } else {
