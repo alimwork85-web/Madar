@@ -5,6 +5,7 @@
 //! started with exactly one argument.
 
 use crate::config::{Config, is_web_url};
+use crate::maintenance;
 use crate::search;
 use crate::wheel::Action;
 use std::os::windows::ffi::OsStrExt;
@@ -107,9 +108,11 @@ fn plan(action: Action, c: &Config) -> Result<Plan, String> {
             args: String::new(),
             dir: None,
         }),
-        // The caller handles these.
+        // Handled by `run` or the wheel.
         Action::AddItems
         | Action::Bluetooth
+        | Action::RestartExplorer
+        | Action::CleanDns
         | Action::VolumeUp
         | Action::VolumeDown
         | Action::Mute
@@ -162,7 +165,18 @@ fn system_dir() -> Result<String, String> {
     }
 }
 
-pub fn run(action: Action, c: &Config) -> Result<(), String> {
+/// A text keeps the wheel open to show it.
+pub fn run(action: Action, c: &Config) -> Result<Option<&'static str>, String> {
+    match action {
+        Action::RestartExplorer => maintenance::restart_explorer().map(|()| None),
+        Action::CleanDns => {
+            maintenance::clean_dns(&system_dir()?).map(|()| Some(maintenance::DNS_CLEANED))
+        }
+        _ => open(action, c).map(|()| None),
+    }
+}
+
+fn open(action: Action, c: &Config) -> Result<(), String> {
     match plan(action, c)? {
         Plan::Shell { file, args, dir } => shell(&file, &args, dir.as_deref()),
         Plan::Spawn { exe, arg } => spawn(&exe, &arg),

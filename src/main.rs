@@ -6,6 +6,7 @@ mod autostart;
 mod bluetooth;
 mod config;
 mod icons;
+mod maintenance;
 mod search;
 mod settings;
 mod tray;
@@ -98,7 +99,9 @@ struct App {
     message: Option<String>,
     animation: Option<Instant>,
     /// Result of the action running on a worker thread.
-    running: Option<Receiver<Result<(), String>>>,
+    running: Option<Receiver<Result<Option<&'static str>, String>>>,
+    /// The last press on Restart Explorer.
+    restart_pressed: Option<Instant>,
     /// Open while the wheel uses the sound.
     audio: Option<Audio>,
     /// The last answer; cleared when the wheel closes.
@@ -501,7 +504,7 @@ impl App {
         }
     }
 
-    fn fail(&mut self, text: &str) {
+    fn tell(&mut self, text: &str) {
         self.message = Some(text.to_string());
         unsafe { SetTimer(Some(self.hwnd), MESSAGE, 4000, None) };
         self.draw();
@@ -520,14 +523,14 @@ impl App {
         let Some(slot) = self.slots.get(i) else {
             return;
         };
-        self.message = None;
+        let message = self.message.take();
         match slot.target {
             Target::Open(page) => self.go(page),
             Target::Empty => {}
             Target::Disabled => {
                 self.hot = Some(i);
                 self.hub_hot = false;
-                self.fail("Not ready");
+                self.tell("Not ready");
             }
             Target::Do(Action::AddItems) => {
                 self.close();
@@ -548,6 +551,21 @@ impl App {
                 self.hub_hot = false;
                 self.switch_bluetooth();
             }
+            Target::Do(Action::RestartExplorer) if self.running.is_none() => {
+                let now = Instant::now();
+                let asked = message.as_deref() == Some(maintenance::CONFIRM);
+                let last = self.restart_pressed.replace(now).filter(|_| asked);
+                if maintenance::confirmed(last, now) {
+                    self.launch(Action::RestartExplorer);
+                    self.tell(maintenance::WORKING);
+                    // Shown until the result comes.
+                    let _ = unsafe { KillTimer(Some(self.hwnd), MESSAGE) };
+                } else {
+                    self.tell(maintenance::CONFIRM);
+                }
+            }
+            // A press during the restart changes nothing.
+            Target::Do(Action::RestartExplorer) => self.message = message,
             Target::Do(Action::VolumeUp) => self.sound(Order::Change(audio::STEP)),
             Target::Do(Action::VolumeDown) => self.sound(Order::Change(-audio::STEP)),
             Target::Do(Action::Mute) => self.sound(Order::ToggleMute),
@@ -582,8 +600,9 @@ impl App {
         };
         self.running = None;
         match result {
-            Ok(()) => self.close(),
-            Err(e) => self.fail(&e),
+            Ok(None) => self.close(),
+            Ok(Some(text)) => self.tell(text),
+            Err(e) => self.tell(&e),
         }
     }
 
@@ -1003,6 +1022,7 @@ fn start(config: Config, unreadable: bool) -> windows::core::Result<()> {
         message: None,
         animation: None,
         running: None,
+        restart_pressed: None,
         audio: None,
         volume: None,
         devices: Vec::new(),
@@ -1085,4 +1105,5 @@ fn main() {
     }
     // Stops the hook thread before the process ends.
     APP.with(|a| a.take());
+    maintenance::wait();
 }
