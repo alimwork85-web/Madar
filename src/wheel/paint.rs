@@ -59,6 +59,31 @@ pub fn theme(name: &str) -> Palette {
     }
 }
 
+impl Palette {
+    /// The two ends of a slot color's gradient, top left first. Neither end
+    /// has less contrast with the text than `c` itself.
+    fn slot_tones(&self, c: u32) -> (u32, u32) {
+        if luminance(self.plate) > luminance(self.slot) {
+            (mix(c, self.plate, 0.65), c)
+        } else {
+            (c, mix(c, self.plate, 0.45))
+        }
+    }
+
+    /// The same for the hub.
+    fn hub_tones(&self) -> (u32, u32) {
+        if luminance(self.plate) > luminance(self.slot) {
+            (mix(self.plate, 0xFFFFFF, 0.5), self.plate)
+        } else {
+            (self.plate, mix(self.plate, 0, 0.65))
+        }
+    }
+
+    fn rim(&self) -> u32 {
+        mix(self.accent, self.plate, 0.25)
+    }
+}
+
 fn mix(a: u32, b: u32, t: f32) -> u32 {
     let ch = |s: u32| {
         let (a, b) = ((a >> s & 255) as f32, (b >> s & 255) as f32);
@@ -306,6 +331,28 @@ impl Painter {
         let p = s.palette;
         let brush = |c| unsafe { rt.CreateSolidColorBrush(&color(c), None) };
         let (text, on_accent, disabled) = (brush(p.text)?, brush(p.on_accent)?, brush(p.disabled)?);
+        // From top left to bottom right of a circle of radius `r`.
+        let shade = |(from, to), r: f32| {
+            let d = r * std::f32::consts::FRAC_1_SQRT_2;
+            let stop = |position, c| D2D1_GRADIENT_STOP {
+                position,
+                color: color(c),
+            };
+            let ends = D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES {
+                startPoint: pt!(-d, -d),
+                endPoint: pt!(d, d),
+            };
+            unsafe {
+                let stops = rt.CreateGradientStopCollection(
+                    &[stop(0.0, from), stop(1.0, to)],
+                    D2D1_GAMMA_2_2,
+                    D2D1_EXTEND_MODE_CLAMP,
+                )?;
+                rt.CreateLinearGradientBrush(&ends, None, &stops)
+            }
+        };
+        let normal = shade(p.slot_tones(p.slot), OUTER_R)?;
+        let faint = shade(p.slot_tones(mix(p.slot, p.plate, 0.35)), OUTER_R)?;
         let disc = |r| D2D1_ELLIPSE {
             point: pt!(0.0, 0.0),
             radiusX: r,
@@ -315,12 +362,13 @@ impl Painter {
             rt.FillEllipse(&disc(PLATE_R), &brush(p.plate)?);
             if p.outline {
                 rt.DrawEllipse(&disc(PLATE_R - 0.5), &text, 1.0, None);
+            } else {
+                rt.DrawEllipse(&disc(PLATE_R - 0.5), &brush(p.rim())?, 1.0, None);
             }
         }
         let n = s.slots.len();
         for (i, slot) in s.slots.iter().enumerate() {
             if slot.target == Target::Empty {
-                let faint = brush(mix(p.slot, p.plate, 0.35))?;
                 unsafe { rt.FillGeometry(&self.slot_shape(i, n, 0.0)?, &faint, None) };
                 continue;
             }
@@ -332,7 +380,12 @@ impl Painter {
                 (false, false) => (p.slot, &text),
             };
             unsafe {
-                rt.FillGeometry(&self.slot_shape(i, n, 0.0)?, &brush(fill)?, None);
+                let shape = self.slot_shape(i, n, 0.0)?;
+                if off || hot {
+                    rt.FillGeometry(&shape, &brush(fill)?, None);
+                } else {
+                    rt.FillGeometry(&shape, &normal, None);
+                }
                 // Keyboard users must still see where they are on a disabled slot.
                 if p.outline || (off && hot) {
                     rt.DrawGeometry(&self.slot_shape(i, n, 0.5)?, ink, 1.0, None);
@@ -353,6 +406,8 @@ impl Painter {
                 rt.FillEllipse(&disc(HUB_R), &brush(p.accent)?);
             } else if p.outline {
                 rt.DrawEllipse(&disc(HUB_R - 0.5), &text, 1.0, None);
+            } else {
+                rt.FillEllipse(&disc(HUB_R), &shade(p.hub_tones(), HUB_R)?);
             }
             let ink = if s.hub_hot { &on_accent } else { &text };
             rt.DrawTextLayout(pt!(-46.0, -35.0), &hub, ink, D2D1_DRAW_TEXT_OPTIONS_NONE);
@@ -576,6 +631,19 @@ mod tests {
             ] {
                 assert!(contrast(a, b) >= least, "{name} {what} {}", contrast(a, b));
             }
+        }
+    }
+
+    #[test]
+    fn gradients_stay_readable() {
+        for name in crate::config::THEMES {
+            let p = theme(name);
+            let ((a, b), (c, d)) = (p.slot_tones(p.slot), p.hub_tones());
+            for (tone, flat) in [(a, p.slot), (b, p.slot), (c, p.plate), (d, p.plate)] {
+                let (now, before) = (contrast(p.text, tone), contrast(p.text, flat));
+                assert!(now >= before && now >= 4.5, "{name} {tone:06X} {now}");
+            }
+            assert!(a != b && c != d && p.rim() != p.plate, "{name}");
         }
     }
 

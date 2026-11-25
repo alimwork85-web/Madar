@@ -60,6 +60,8 @@ Hex without `#`. Default Midnight. Windows High Contrast overrides every theme.
 | Aqua | FAFCFF | E6EAF0 | 17202E | 0A66C2 | FFFFFF |
 | Porcelain | EEF2F5 | CFD9E2 | 1C2833 | 2F5D7C | FFFFFF |
 
+Slots are shaded from top left to bottom right across the wheel: dark themes from the slot color to 45% of it over the plate, light themes from 65% of it over the plate to the slot color. The hub is shaded the same way: dark themes from the plate to 65% of it over black, light themes from half white to the plate. A 1 px rim at the plate's edge, accent at 25% over the plate. Accent and disabled fills stay flat, and High Contrast has none of this.
+
 Colored program icons get a neutral base behind them when their contrast with the slot is below 3:1.
 
 ## Motion
