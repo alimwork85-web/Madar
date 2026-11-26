@@ -37,6 +37,11 @@ Shut down and Restart PC wait for a second press like Restart Explorer. The hub 
 Google: one press opens the results for the copied text in the default browser, or Google itself when there is none. Text the copying program excludes from others, longer than 300, or copied more than 2 minutes ago or before Madar started, counts as none. The clipboard is read once and never changed.
 Hub text: `Close` at the root, `Back` inside a folder, the slot name while hovering. Labels wrap to two lines, then end with an ellipsis.
 
+## Item menu
+A right click on an item in My Apps, Apps, Tools or Sites opens Edit, Replace from Start, Remove. Sites have no Replace from Start. Nothing else on the wheel has a menu. It is drawn like the tray menu. While it is open the item stays highlighted and the keys belong to the menu; a click outside the menu and the wheel closes both, and Esc closes only the menu.
+A choice closes the wheel and opens the Edit window, the Start menu picker, or the question of Remove, the same ones as in Settings. When that window closes, by OK or Cancel, the wheel opens again in the same place and on the same page, so several items can be changed in a row; not when a settings window shows. Settings itself stays hidden unless it was open or the change failed, and then shows the error. With one of its windows already open, that one comes to the front and nothing else happens.
+Replace from Start takes the program's name and clears the arguments. Remove changes the list only.
+
 ## Slot states
 | State | Drawing |
 |---|---|

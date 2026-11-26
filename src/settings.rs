@@ -10,6 +10,7 @@ pub mod start_menu;
 
 use crate::actions;
 use crate::config::{self, App, Config, Mouse, Site, Size, THEMES};
+use crate::wheel::{Action, Target};
 use std::cell::{Cell, RefCell};
 use std::mem::replace;
 use std::path::Path;
@@ -253,6 +254,88 @@ pub fn open(host: Host, list: Option<List>) -> windows::core::Result<()> {
         }
         return Ok(());
     }
+    let hwnd = create(host)?;
+    if let Some(list) = list {
+        show_list(list);
+    }
+    show(hwnd);
+    Ok(())
+}
+
+fn show(hwnd: HWND) {
+    unsafe {
+        let _ = ShowWindow(hwnd, SW_SHOW);
+        let _ = SetForegroundWindow(hwnd);
+        if let Some(field) = with_state(|s| s.w.hotkey) {
+            let _ = SetFocus(Some(field));
+        }
+    }
+}
+
+/// What the wheel can do to one item.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Change {
+    Edit,
+    /// Another program from the Start menu, in the same place.
+    Replace,
+    Remove,
+}
+
+/// Changes one item for the wheel. The settings window owns what is shown; it
+/// stays hidden unless it was open or the change failed.
+pub fn change(host: Host, list: List, index: usize, what: Change) -> windows::core::Result<()> {
+    let opened = with_state(|s| s.hwnd);
+    let hwnd = match opened {
+        Some(hwnd) => {
+            open(host, Some(list))?;
+            // One Add, Edit or question at a time; it is in front now.
+            if unsafe { GetLastActivePopup(hwnd) } != hwnd {
+                return Ok(());
+            }
+            hwnd
+        }
+        None => {
+            let hwnd = create(host)?;
+            show_list(list);
+            // So that what it owns comes to the front.
+            let _ = unsafe { SetForegroundWindow(hwnd) };
+            hwnd
+        }
+    };
+    refresh(Some(index));
+    match what {
+        Change::Edit => item(EDIT),
+        Change::Remove => item(REMOVE),
+        Change::Replace => {
+            if let Some(made) = from_start(hwnd) {
+                apply(list.field(), Some(index), |c| list.put(c, index, made));
+            }
+        }
+    }
+    if opened.is_none() {
+        match with_state(|s| s.errors[list.field().slot()].is_some()) {
+            Some(true) => show(hwnd),
+            Some(false) => close(),
+            None => {}
+        }
+    }
+    Ok(())
+}
+
+pub fn is_open() -> bool {
+    with_state(|_| ()).is_some()
+}
+
+/// Brings an open settings window, or its Add or Edit window, to the front.
+pub fn front() {
+    if let Some(hwnd) = with_state(|s| s.hwnd) {
+        unsafe {
+            let _ = SetForegroundWindow(GetLastActivePopup(hwnd));
+        }
+    }
+}
+
+fn create(host: Host) -> windows::core::Result<HWND> {
     unsafe {
         let module = GetModuleHandleW(None)?;
         let class = WNDCLASSW {
@@ -299,17 +382,7 @@ pub fn open(host: Host, list: Option<List>) -> windows::core::Result<()> {
             None,
         );
         HOST.with(|c| c.set(None));
-
-        let hwnd = created?;
-        if let Some(list) = list {
-            show_list(list);
-        }
-        let _ = ShowWindow(hwnd, SW_SHOW);
-        let _ = SetForegroundWindow(hwnd);
-        if let Some(field) = with_state(|s| s.w.hotkey) {
-            let _ = SetFocus(Some(field));
-        }
-        Ok(())
+        created
     }
 }
 
@@ -1381,18 +1454,22 @@ fn pick_list(owner: HWND, button: HWND, list: List, c: &Config) -> Option<List> 
     }
 }
 
-fn add_from_start(owner: HWND, host: Host, list: List) {
-    let Some(w) = with_state(|s| s.w) else { return };
-    if let Some(entry) = start_menu::pick(owner) {
-        let end = list.len(&(host.get)());
-        let app = App {
+/// A program from the Start menu's list. None when the user cancels.
+fn from_start(owner: HWND) -> Option<Made> {
+    start_menu::pick(owner).map(|entry| {
+        Made::App(App {
             label: entry.name.chars().take(NAME_MAX).collect(),
             path: entry.path,
             args: String::new(),
-        };
-        apply(list.field(), Some(end), |c| {
-            list.put(c, end, Made::App(app))
-        });
+        })
+    })
+}
+
+fn add_from_start(owner: HWND, host: Host, list: List) {
+    let Some(w) = with_state(|s| s.w) else { return };
+    if let Some(made) = from_start(owner) {
+        let end = list.len(&(host.get)());
+        apply(list.field(), Some(end), |c| list.put(c, end, made));
     }
     // Back on the button, so several programs can be added in a row.
     let full = list.len(&(host.get)()) >= MAX_ITEMS;
@@ -1412,6 +1489,17 @@ pub enum List {
 pub const LISTS: [List; 4] = [List::MyApps, List::Apps, List::Tools, List::Sites];
 
 impl List {
+    /// The item behind a slot of the wheel.
+    pub fn item(target: Target) -> Option<(Self, usize)> {
+        match target {
+            Target::Do(Action::MyApp(i)) => Some((Self::MyApps, i)),
+            Target::Do(Action::App(i)) => Some((Self::Apps, i)),
+            Target::Do(Action::Tool(i)) => Some((Self::Tools, i)),
+            Target::Do(Action::Site(i)) => Some((Self::Sites, i)),
+            _ => None,
+        }
+    }
+
     fn field(self) -> Field {
         match self {
             Self::MyApps => Field::MyApps,
@@ -2410,6 +2498,7 @@ pub fn check_site(name: &str, url: &str, browser: &str) -> Result<Site, (usize, 
 mod tests {
     use super::*;
     use crate::trigger;
+    use crate::wheel::{Page, slots};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -2855,6 +2944,43 @@ mod tests {
         let plan = arrange(&s, 480, need);
         assert!(end(&plan, handle(16)) <= need);
         assert!(end(&plan, handle(46)) <= need);
+    }
+
+    #[test]
+    fn only_items_have_a_menu() {
+        let app = |n: &str| App {
+            label: n.to_string(),
+            path: String::new(),
+            args: String::new(),
+        };
+        let c = Config {
+            my_apps: vec![app("a"), app("b")],
+            apps: vec![app("c")],
+            tools: vec![app("d"); MAX_ITEMS],
+            sites: vec![Site {
+                label: "e".into(),
+                url: String::new(),
+                browser: None,
+            }],
+            ..Config::default()
+        };
+        for page in [Page::Root, Page::System, Page::Sound] {
+            assert!(
+                slots(page, &c)
+                    .iter()
+                    .all(|s| List::item(s.target).is_none())
+            );
+        }
+        let folders = [Page::MyApps, Page::Apps, Page::Tools, Page::Sites];
+        for (page, list) in folders.into_iter().zip(LISTS) {
+            let slots = slots(page, &c);
+            assert_eq!(slots.len(), MAX_ITEMS);
+            for (i, slot) in slots.iter().enumerate() {
+                // Past the items come the + slot and the empty ones.
+                let item = (i < list.len(&c)).then_some((list, i));
+                assert_eq!(List::item(slot.target), item);
+            }
+        }
     }
 
     #[test]

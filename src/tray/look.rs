@@ -1,4 +1,4 @@
-//! Draws the tray menu in the colors of the wheel's theme.
+//! Draws the menus of the tray and of an item on the wheel in the colors of the wheel's theme.
 //!
 //! It stays a Windows menu, with its keys and its names for screen readers;
 //! only the painting is ours. Should that fail, Windows draws the plain menu.
@@ -103,12 +103,15 @@ pub fn own(m: HMENU, index: u32, data: usize) -> Result<()> {
 }
 
 /// The text with its access key, and the icon.
-fn row(data: usize) -> (&'static str, char) {
+pub fn row(data: usize) -> (&'static str, char) {
     match data as u32 {
         OPEN => ("&Open wheel", '\u{EA3A}'),
         SETTINGS => ("&Settings", '\u{E713}'),
         PAUSE => ("&Pause", '\u{E769}'),
         EXIT => ("E&xit", '\u{E7E8}'),
+        EDIT => ("&Edit", '\u{E70F}'),
+        REPLACE => ("Replace from &Start", '\u{E8AB}'),
+        REMOVE => ("&Remove", '\u{E738}'),
         _ if data == RESUME => ("&Resume", '\u{E768}'),
         _ if data == THEMES_MENU => ("&Theme", '\u{E790}'),
         id => {
@@ -404,7 +407,7 @@ mod tests {
 
     #[test]
     fn every_command_has_a_row() {
-        for data in [1, 2, 3, 4, RESUME, THEMES_MENU] {
+        for data in [1, 2, 3, 4, RESUME, THEMES_MENU, 7, 8, 9] {
             let (text, glyph) = row(data);
             assert!(text.contains('&') && glyph != ' ', "{data}");
         }
@@ -421,6 +424,11 @@ mod tests {
         let root = [1, 2, 3, THEMES_MENU, 4];
         for (key, data) in "ospTx".chars().zip(root) {
             assert_eq!(root.iter().filter(|&&d| is_key(d, key)).count(), 1);
+            assert!(is_key(data, key));
+        }
+        let item = [7, 8, 9];
+        for (key, data) in "esr".chars().zip(item) {
+            assert_eq!(item.iter().filter(|&&d| is_key(d, key)).count(), 1);
             assert!(is_key(data, key));
         }
         assert!(is_key(RESUME, 'r') && !is_key(SEPARATOR, 'o'));

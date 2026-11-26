@@ -1,4 +1,5 @@
-//! The tray icon: its clicks, its tooltip and its right-click menu.
+//! The tray icon: its clicks, its tooltip and its right-click menu, and the
+//! menu of an item on the wheel, which looks the same.
 //!
 //! Nothing here is global: a `Tray` owns the icon it registered and removes it
 //! when dropped, so Explorer restarts are handled by calling `add` again.
@@ -6,6 +7,7 @@
 pub mod look;
 
 use crate::config::THEMES;
+use crate::settings::Change;
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, POINT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{LIM_SMALL, LoadIconMetric};
@@ -30,6 +32,9 @@ const OPEN: u32 = 1;
 const SETTINGS: u32 = 2;
 const PAUSE: u32 = 3;
 const EXIT: u32 = 4;
+const EDIT: u32 = 7;
+const REPLACE: u32 = 8;
+const REMOVE: u32 = 9;
 /// The first of one id per theme, in the order of `THEMES`.
 const THEME: u32 = 10;
 
@@ -197,6 +202,58 @@ unsafe fn track(m: HMENU, hwnd: HWND, paused: bool, theme: &str, at: POINT) -> O
                 let _ = look::own(themes, i, (THEME + i) as usize);
             }
         });
+        command(show(m, hwnd, at))
+    }
+}
+
+/// Shows the menu of an item on the wheel and waits. `None` when dismissed.
+pub fn item_menu(hwnd: HWND, site: bool, theme: &str, at: POINT) -> Option<Change> {
+    unsafe {
+        let m = CreatePopupMenu().ok()?;
+        let chosen = track_item(m, hwnd, site, theme, at);
+        let _ = DestroyMenu(m);
+        chosen
+    }
+}
+
+unsafe fn track_item(m: HMENU, hwnd: HWND, site: bool, theme: &str, at: POINT) -> Option<Change> {
+    unsafe {
+        let ids = item_ids(site);
+        for &id in ids {
+            let text = HSTRING::from(look::row(id as usize).0);
+            AppendMenuW(m, MF_STRING, id as usize, &text).ok()?;
+        }
+        // Kept until the menu is gone.
+        let _painting = look::begin(m, theme, at).inspect(|_| {
+            for (i, &id) in (0..).zip(ids) {
+                let _ = look::own(m, i, id as usize);
+            }
+        });
+        change(show(m, hwnd, at))
+    }
+}
+
+/// The Start menu holds programs, so a site has no Replace.
+fn item_ids(site: bool) -> &'static [u32] {
+    if site {
+        &[EDIT, REMOVE]
+    } else {
+        &[EDIT, REPLACE, REMOVE]
+    }
+}
+
+fn change(id: u32) -> Option<Change> {
+    match id {
+        EDIT => Some(Change::Edit),
+        REPLACE => Some(Change::Replace),
+        REMOVE => Some(Change::Remove),
+        _ => None,
+    }
+}
+
+/// The id of the chosen item, 0 for none.
+unsafe fn show(m: HMENU, hwnd: HWND, at: POINT) -> u32 {
+    unsafe {
         let _ = SetForegroundWindow(hwnd);
         let align = if GetSystemMetrics(SM_MENUDROPALIGNMENT) != 0 {
             TPM_RIGHTALIGN
@@ -208,7 +265,7 @@ unsafe fn track(m: HMENU, hwnd: HWND, paused: bool, theme: &str, at: POINT) -> O
         let id = TrackPopupMenuEx(m, flags.0, at.x, at.y, hwnd, None);
         // Lets the menu close properly when the click is outside it.
         let _ = PostMessageW(Some(hwnd), WM_NULL, WPARAM(0), LPARAM(0));
-        command(id.0 as u32)
+        id.0 as u32
     }
 }
 
@@ -304,6 +361,16 @@ mod tests {
         }
         for bad in [0, 5, THEME - 1, THEME + THEMES.len() as u32, 99, 0xFFFF] {
             assert_eq!(command(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn item_commands() {
+        let chosen = |site| item_ids(site).iter().map(|&id| change(id).expect("id"));
+        assert!(chosen(false).eq([Change::Edit, Change::Replace, Change::Remove]));
+        assert!(chosen(true).eq([Change::Edit, Change::Remove]));
+        for other in [0, OPEN, EXIT, THEME] {
+            assert_eq!(change(other), None, "{other}");
         }
     }
 

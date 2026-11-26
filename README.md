@@ -41,6 +41,10 @@ The interface is in English.
 - Enter opens the highlighted slot. With none highlighted it works like Backspace.
 - Backspace goes back from a folder, and closes the wheel at the top level.
 - Esc closes the wheel. Clicking the hub works like Backspace.
+- Right-click an item in My Apps, Apps, Tools or Sites for its menu: Edit, Replace from Start, Remove.
+  Replace from Start puts another Start menu program in the same place and is not shown for sites.
+  Remove asks first and takes the item off the wheel only; the program and its files stay.
+  Afterwards the wheel opens again on the same page, ready for the next item.
 
 The hub shows Close at the top level and Back inside a folder. A highlighted slot shows its name there.
 On the Sound & Light page the hub shows the level as well, under the slot's name.
@@ -119,7 +123,7 @@ The Settings window changes the shortcut, the mouse button, the theme, the size,
 - Start with Windows follows Task Manager: an entry turned off there shows as off here. If the EXE was moved,
   running it once from its new place corrects the entry.
 - A theme is picked by name from 8 themes, here or under Theme in the tray menu. Midnight is the default.
-  The settings windows and the tray menu take its colors too.
+  The settings windows, the tray menu and the menu of an item take its colors too.
 - Size is how large the wheel is: Large (the default), Medium (85%) or Small (75%). The next opening uses it.
 - Show names off draws each slot as its icon alone, without label or digit. The digits still work.
 - One list shows at a time: My Apps, Apps, Tools or Sites.

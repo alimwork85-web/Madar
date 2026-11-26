@@ -19,7 +19,7 @@ use audio::output::Device;
 use audio::{Audio, Order, Volume};
 use brightness::Light;
 use config::{Config, Mouse};
-use settings::{Field, Problem};
+use settings::{Field, List, Problem};
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
@@ -108,6 +108,8 @@ struct App {
     hot: Option<usize>,
     hub_hot: bool,
     pressed: Option<Hit>,
+    /// The menu of an item is open.
+    menu: bool,
     /// Where the summon button went down, while it is held.
     summon: Option<POINT>,
     dragged: bool,
@@ -168,7 +170,11 @@ fn animations_on() -> bool {
 
 impl App {
     fn open(&mut self, animate: bool) {
-        let p = cursor();
+        self.open_at(cursor(), animate);
+    }
+
+    /// Opens the wheel around `p`, or as near as the screen allows.
+    fn open_at(&mut self, p: POINT, animate: bool) {
         let (mut dpi, mut unused) = (96, 0);
         let mut info = MONITORINFO {
             cbSize: size_of::<MONITORINFO>() as u32,
@@ -205,15 +211,25 @@ impl App {
                 SetTimer(Some(self.hwnd), ANIMATION, 10, None);
             }
             if !self.visible {
-                for (id, (mods, key)) in (FIRST_WHEEL_KEY..).zip(WHEEL_KEYS) {
-                    // A key some other program owns simply stays with it.
-                    let _ = RegisterHotKey(Some(self.hwnd), id, mods, key.0 as u32);
-                }
+                self.take_keys();
             }
         }
         self.visible = true;
         // Without the hook only closing by an outside click is lost.
         let _ = self.hook.update(self.button(), true);
+    }
+
+    fn take_keys(&self) {
+        for (id, (mods, key)) in (FIRST_WHEEL_KEY..).zip(WHEEL_KEYS) {
+            // A key some other program owns simply stays with it.
+            let _ = unsafe { RegisterHotKey(Some(self.hwnd), id, mods, key.0 as u32) };
+        }
+    }
+
+    fn leave_keys(&self) {
+        for (id, _) in (FIRST_WHEEL_KEY..).zip(WHEEL_KEYS) {
+            let _ = unsafe { UnregisterHotKey(Some(self.hwnd), id) };
+        }
     }
 
     fn close(&mut self) {
@@ -233,14 +249,15 @@ impl App {
         self.animation = None;
         self.pressed = None;
         self.summon = None;
+        self.leave_keys();
         unsafe {
+            if self.menu {
+                let _ = EndMenu();
+            }
             let _ = ReleaseCapture();
             let _ = KillTimer(Some(self.hwnd), ANIMATION);
             let _ = KillTimer(Some(self.hwnd), MESSAGE);
             let _ = KillTimer(Some(self.hwnd), DEVICES);
-            for (id, _) in (FIRST_WHEEL_KEY..).zip(WHEEL_KEYS) {
-                let _ = UnregisterHotKey(Some(self.hwnd), id);
-            }
             let _ = ShowWindow(self.hwnd, SW_HIDE);
         }
         let _ = self.hook.update(self.button(), false);
@@ -836,13 +853,14 @@ fn warn(text: &str) {
     };
 }
 
+const HOST: settings::Host = settings::Host {
+    get: current_config,
+    apply: apply_config,
+};
+
 /// `list` is counted from 1; 0 keeps the one shown.
 fn open_settings(list: usize) {
-    let host = settings::Host {
-        get: current_config,
-        apply: apply_config,
-    };
-    if let Err(e) = settings::open(host, settings::LISTS.get(list.wrapping_sub(1)).copied()) {
+    if let Err(e) = settings::open(HOST, settings::LISTS.get(list.wrapping_sub(1)).copied()) {
         warn(&format!("The settings window could not open: {e}"));
     }
 }
@@ -986,15 +1004,87 @@ fn tray_menu(hwnd: HWND, at: POINT) {
     }
 }
 
+/// The menu of the item under `at`, if there is one. Like the tray menu it
+/// runs its own message loop, so the app must not be borrowed meanwhile.
+fn item_menu(hwnd: HWND, at: POINT) {
+    let found = with_app(|a| {
+        if !a.visible || a.menu || a.pressed.is_some() || a.summon.is_some() {
+            return None;
+        }
+        let hit = a.hit(at);
+        let Hit::Slot(i) = hit else { return None };
+        let (list, index) = List::item(a.slots.get(i)?.target)?;
+        a.set_hot(hit);
+        a.menu = true;
+        // The arrows, Enter and Esc belong to the menu.
+        a.leave_keys();
+        Some((list, index, a.config.theme.clone(), a.center, a.page))
+    });
+    let Some((list, index, theme, center, page)) = found.flatten() else {
+        return;
+    };
+    let before = unsafe { GetForegroundWindow() };
+    let chosen = tray::item_menu(hwnd, list == List::Sites, &theme, at);
+    if chosen.is_some() {
+        // While the wheel still holds the foreground, which it gives away on closing.
+        settings::front();
+    }
+    with_app(|a| {
+        a.menu = false;
+        if chosen.is_some() {
+            // Its keys would be taken from the window that opens.
+            a.close();
+        } else if a.visible {
+            a.take_keys();
+            a.set_hot(a.hit(cursor()));
+        }
+    });
+    match chosen {
+        Some(what) => {
+            if let Err(e) = settings::change(HOST, list, index, what) {
+                warn(&format!("The item could not be changed: {e}"));
+            }
+            // Back where it was, so several items can be changed in a row; not
+            // over a settings window, whose keys the wheel would take.
+            if !settings::is_open() {
+                with_app(|a| {
+                    if !a.visible {
+                        a.open_at(center, false);
+                        a.go(page);
+                    }
+                });
+            }
+        }
+        // The wheel itself never keeps the keyboard from another program.
+        None => unsafe {
+            if GetForegroundWindow() == hwnd {
+                let _ = SetForegroundWindow(before);
+            }
+        },
+    }
+}
+
+/// The point of a mouse message.
+fn words(l: LPARAM) -> POINT {
+    POINT {
+        x: l.0 as i16 as i32,
+        y: (l.0 >> 16) as i16 as i32,
+    }
+}
+
+/// A menu of any program lies at `p`.
+fn over_menu(p: POINT) -> bool {
+    let mut class = [0u16; 16];
+    let n = unsafe { GetClassNameW(WindowFromPoint(p), &mut class) };
+    String::from_utf16_lossy(&class[..n as usize]) == "#32768"
+}
+
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
     if let Some(done) = tray::look::handle(msg, w, l) {
         return done;
     }
     let client = || {
-        let mut p = POINT {
-            x: l.0 as i16 as i32,
-            y: (l.0 >> 16) as i16 as i32,
-        };
+        let mut p = words(l);
         let _ = unsafe { ClientToScreen(hwnd, &mut p) };
         p
     };
@@ -1019,7 +1109,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
         trigger::WM_SUMMON_MOVE => with_app(|a| a.summon_move(unpack(l))),
         trigger::WM_SUMMON_UP => with_app(|a| a.summon_up(unpack(l))),
         trigger::WM_PRESS => with_app(|a| {
-            if a.visible && a.hit(unpack(l)) == Hit::Outside {
+            let p = unpack(l);
+            if a.visible && a.hit(p) == Hit::Outside && !(a.menu && over_menu(p)) {
                 a.close();
             }
         }),
@@ -1037,7 +1128,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
             a.set_hot(a.hit(client()));
         }),
         WM_MOUSELEAVE => with_app(|a| {
-            if a.visible && a.summon.is_none() {
+            // The menu covers its item, which stays marked.
+            if a.visible && a.summon.is_none() && !a.menu {
                 a.set_hot(Hit::Outside);
             }
         }),
@@ -1048,6 +1140,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
             a.draw();
         }),
         WM_LBUTTONUP => with_app(|a| a.left_up(client())),
+        WM_CONTEXTMENU => {
+            item_menu(hwnd, words(l));
+            Some(())
+        }
         WM_TIMER => with_app(|a| {
             let running = |s: Instant| s.elapsed().as_secs_f32() * 1000.0 < ANIMATION_MS;
             if w.0 == DEVICES {
@@ -1158,6 +1254,7 @@ fn start(config: Config, unreadable: bool) -> windows::core::Result<()> {
         hot: None,
         hub_hot: false,
         pressed: None,
+        menu: false,
         summon: None,
         dragged: false,
         message: None,
