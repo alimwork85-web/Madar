@@ -19,7 +19,7 @@ Developer: Ali Alhumedi.
 
 <h2><img src="assets/titles/download.svg" alt="Download"></h2>
 
-Take `Madar-v0.2.0-windows-x64.exe` from the [latest release](https://github.com/alimwork85-web/Madar/releases/latest) and run it.
+Take `Madar-v0.3.0-windows-x64.exe` from the [latest release](https://github.com/alimwork85-web/Madar/releases/latest) and run it.
 There is no installer. The EXE is not signed, so SmartScreen may warn: More info, then Run anyway.
 A `.sha256` file next to it holds its checksum.
 
